@@ -1,6 +1,6 @@
 # NetSync
 
-Fast, lightweight networking core for .NET — a single **zero-dependency** DLL you can drop into anything: game servers, desktop apps, services, or Unity (via the [NetSync.Unity](../NetSync.Unity) adapter package).
+Fast, lightweight networking core for .NET — a single **zero-dependency** DLL you can drop into anything: game servers, desktop apps, services, or Unity (via the [NetSync.Unity](https://github.com/VladislavKresov/NetSync.Unity) adapter package).
 
 ```
 ┌ Application ─────────────────────────────────────────────────┐
@@ -42,7 +42,7 @@ dotnet add package NetSync
 **From source:**
 
 ```bash
-git clone https://github.com/<you>/NetSync
+git clone https://github.com/VladislavKresov/NetSync
 dotnet build NetSync/src/NetSync -c Release   # or: dotnet pack
 ```
 
