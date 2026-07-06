@@ -1,0 +1,10 @@
+bin/
+obj/
+artifacts/
+*.user
+.vs/
+.idea/
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.binlog
+.editorconfig

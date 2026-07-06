@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+  </PropertyGroup>
+
+  <!-- Intentionally package-free: measurements use Stopwatch + GC counters so the
+       benchmarks run anywhere the library does. -->
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\NetSync\NetSync.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NetSync</RootNamespace>
+    <AssemblyName>NetSync</AssemblyName>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- NuGet package -->
+  <PropertyGroup>
+    <PackageId>NetSync</PackageId>
+    <Version>2.0.0-rc.1</Version>
+    <Authors>Vladislav Kresov</Authors>
+    <Description>Fast, zero-dependency networking core: TCP+UDP channels over one connection, reliable UDP (ARQ), automatic fragmentation, optional per-channel compression and encryption, LAN discovery. netstandard2.1 (Unity 2021.2+) and net8.0, same wire protocol.</Description>
+    <PackageTags>networking;multiplayer;tcp;udp;reliable-udp;sockets;unity;encryption;lan</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <!-- TODO: set the real repository URL before publishing -->
+    <RepositoryUrl>https://github.com/your-name/NetSync</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/your-name/NetSync</PackageProjectUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <!-- Zero runtime dependencies: BCL only. Do not add PackageReference here. -->
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    <InternalsVisibleTo Include="NetSync.Tests" />
+    <InternalsVisibleTo Include="NetSync.Benchmarks" />
+  </ItemGroup>
+
+</Project>
