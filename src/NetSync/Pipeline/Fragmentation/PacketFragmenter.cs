@@ -63,10 +63,20 @@ namespace NetSync.Pipeline.Fragmentation {
         /// fields and payload. Payload is a copy (fragments outlive the receive buffer).
         /// </summary>
         public static bool TryUnwrap(ReadOnlySpan<byte> packet, out uint sequenceId, out uint index, out uint total, out byte[] data) {
+            if (!TryParse(packet, out sequenceId, out index, out total, out var chunk)) {
+                data = Array.Empty<byte>();
+                return false;
+            }
+            data = chunk.ToArray();
+            return true;
+        }
+
+        /// <summary>Zero-copy variant of <see cref="TryUnwrap"/>: the chunk is a slice of <paramref name="packet"/>.</summary>
+        internal static bool TryParse(ReadOnlySpan<byte> packet, out uint sequenceId, out uint index, out uint total, out ReadOnlySpan<byte> chunk) {
             sequenceId = 0;
             index = 0;
             total = 0;
-            data = Array.Empty<byte>();
+            chunk = ReadOnlySpan<byte>.Empty;
 
             if (packet.Length < HeaderSize || packet[0] != (byte)Transports.PacketType.Fragment) {
                 return false;
@@ -80,7 +90,7 @@ namespace NetSync.Pipeline.Fragmentation {
                 return false;
             }
 
-            data = packet.Slice(HeaderSize).ToArray();
+            chunk = packet.Slice(HeaderSize);
             return true;
         }
     }

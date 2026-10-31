@@ -66,6 +66,85 @@ namespace NetSync.Tests {
             }
         }
 
+        [Fact]
+        public async Task Oversized_Fragmented_Message_Kills_The_Link_With_Error() {
+            var dead = new TaskCompletionSource<DisconnectReason>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var aToB = new LossyPipe(seed: 1, lossRate: 0, dupRate: 0);
+            var bToA = new LossyPipe(seed: 2, lossRate: 0, dupRate: 0);
+            using var sender = new ReliableEndpoint(Channels(ReliabilityMode.ReliableOrdered), aToB.Send, (_, _) => { }, () => 5,
+                _ => { }, NullNetLogger.Instance, maxMessageSize: 1 << 20);
+            using var receiver = new ReliableEndpoint(Channels(ReliabilityMode.ReliableOrdered), bToA.Send, (_, _) => { }, () => 5,
+                reason => dead.TrySetResult(reason), NullNetLogger.Instance, maxMessageSize: 16 * 1024);
+            aToB.Target = receiver;
+            bToA.Target = sender;
+
+            try {
+                await sender.SendReliableAsync(Channel, new byte[100 * 1024]);
+            }
+            catch (InvalidOperationException) { }
+
+            Assert.Same(dead.Task, await Task.WhenAny(dead.Task, Task.Delay(5000)));
+            Assert.Equal(DisconnectReason.Error, await dead.Task);
+        }
+
+        [Theory]
+        [InlineData(ReliabilityMode.ReliableOrdered)]
+        [InlineData(ReliabilityMode.Reliable)]
+        public async Task Sequence_Numbers_Wrap_Past_65535_Without_Loss(ReliabilityMode mode) {
+            // 70 000 messages: the 16-bit sequence wraps once, with loss and duplication
+            // around the wrap point exercising the wrap-aware distance math.
+            const int messageCount = 70_000;
+            int received = 0;
+            long sum = 0;
+            int lastOrdered = -1;
+            bool orderViolated = false;
+            var (a, b, aToB, _) = CreatePair(mode, lossRate: 0.002, dupRate: 0.002, (_, payload) => {
+                int value = BitConverter.ToInt32(payload);
+                if (mode == ReliabilityMode.ReliableOrdered) {
+                    if (value != lastOrdered + 1) {
+                        orderViolated = true;
+                    }
+                    lastOrdered = value;
+                }
+                Interlocked.Add(ref sum, value);
+                Interlocked.Increment(ref received);
+            });
+
+            using (a)
+            using (b) {
+                for (int i = 0; i < messageCount; i++) {
+                    await a.SendReliableAsync(Channel, BitConverter.GetBytes(i));
+                }
+                await WaitUntilAsync(() => Volatile.Read(ref received) >= messageCount, 120_000);
+            }
+
+            Assert.Equal(messageCount, received);
+            Assert.Equal((long)messageCount * (messageCount - 1) / 2, sum); // every value exactly once
+            Assert.False(orderViolated, "ordered channel delivered out of order across the wrap");
+            Assert.True(aToB.Dropped > 0);
+        }
+
+        [Fact]
+        public async Task Sequenced_Mode_Keeps_Delivering_After_Wrap() {
+            // A naive "seq > highest" check would freeze the channel forever at 65535.
+            var captured = new List<byte[]>();
+            var received = new List<int>();
+            using var sender = new ReliableEndpoint(Channels(ReliabilityMode.UnreliableSequenced),
+                message => { captured.Add(message.ToArray()); return default; },
+                (_, _) => { }, () => 5, _ => { }, NullNetLogger.Instance);
+            using var receiver = new ReliableEndpoint(Channels(ReliabilityMode.UnreliableSequenced),
+                _ => default, (_, payload) => received.Add(BitConverter.ToInt32(payload)),
+                () => 5, _ => { }, NullNetLogger.Instance);
+
+            for (int i = 0; i < 70_000; i++) {
+                await sender.SendSequencedAsync(Channel, BitConverter.GetBytes(i));
+                receiver.HandleRelData(captured[i], 0, captured[i].Length);
+            }
+
+            Assert.Equal(70_000, received.Count);
+            Assert.Equal(69_999, received[^1]);
+        }
+
         private static Dictionary<byte, ChannelConfig> Channels(ReliabilityMode mode) {
             return new Dictionary<byte, ChannelConfig> {
                 [Channel] = new ChannelConfig(TransportType.Udp, mode)

@@ -11,6 +11,8 @@ namespace NetSync.Transports {
         /// <summary>No pong received within the configured timeout.</summary>
         Timeout,
         /// <summary>An unrecoverable transport error occurred.</summary>
-        Error
+        Error,
+        /// <summary>The server deliberately disconnected this client (NetConnection.DisconnectAsync). No auto-reconnect.</summary>
+        Kicked
     }
 }

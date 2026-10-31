@@ -14,34 +14,69 @@ namespace NetSync.Tests {
     public class SecurityTests {
         private static readonly byte[] Psk = Encoding.ASCII.GetBytes("0123456789abcdef0123456789abcdef");
 
-        [Fact]
-        public void Crypto_Roundtrips_And_Rejects_Tampering() {
-            using var alice = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42);
-            using var bob = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42);
+        public static TheoryData<CipherSuite> Suites() => HeaderSecurityTests.Suites();
+
+        private static byte[] Encrypt(ConnectionCrypto crypto, byte[] plaintext) {
+            var buffer = new byte[plaintext.Length + crypto.MaxOverhead];
+            int length = crypto.Encrypt(plaintext, buffer);
+            return buffer.AsSpan(0, length).ToArray();
+        }
+
+        private static byte[]? Decrypt(ConnectionCrypto crypto, byte[] message) {
+            var buffer = new byte[message.Length];
+            int length = crypto.Decrypt(message, buffer);
+            return length < 0 ? null : buffer.AsSpan(0, length).ToArray();
+        }
+
+        [Theory]
+        [MemberData(nameof(Suites))]
+        public void Crypto_Roundtrips_Without_Leaking_Plaintext(CipherSuite suite) {
+            using var client = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42, suite, isClient: true);
+            using var server = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42, suite, isClient: false);
 
             var plaintext = new byte[777];
             new Random(1).NextBytes(plaintext);
 
-            var encrypted = alice.Encrypt(plaintext);
+            var encrypted = Encrypt(client, plaintext);
             // No plaintext block may appear anywhere in the ciphertext.
             var firstBlock = plaintext.Take(16).ToArray();
             Assert.DoesNotContain(Chunks(encrypted, 16), chunk => chunk.SequenceEqual(firstBlock));
-            Assert.Equal(plaintext, bob.Decrypt(encrypted));
-
-            // Tamper with one ciphertext byte → authentication fails.
-            encrypted[encrypted.Length - 1] ^= 0xFF;
-            Assert.Null(bob.Decrypt(encrypted));
+            Assert.Equal(plaintext, Decrypt(server, encrypted));
+            // Each direction has its own key: a client can't read its own traffic reflected back.
+            Assert.NotEqual(plaintext, Decrypt(client, encrypted));
         }
 
         [Fact]
-        public void Different_Psk_Or_Token_Yields_Incompatible_Keys() {
-            using var alice = ConnectionCrypto.FromPresharedKey(Psk, 42);
-            using var wrongKey = ConnectionCrypto.FromPresharedKey(Encoding.ASCII.GetBytes("another-key-another-key-32bytes!"), 42);
-            using var wrongToken = ConnectionCrypto.FromPresharedKey(Psk, 43);
+        public void Gcm_Payloads_Also_Carry_Their_Own_Tag() {
+            if (!CipherSuites.GcmSupported) {
+                return;
+            }
+            using var client = ConnectionCrypto.FromPresharedKey(Psk, 42, CipherSuite.AesGcm, isClient: true);
+            using var server = ConnectionCrypto.FromPresharedKey(Psk, 42, CipherSuite.AesGcm, isClient: false);
+            var encrypted = Encrypt(client, new byte[] { 1, 2, 3, 4 });
+            encrypted[^1] ^= 0xFF;
+            Assert.Null(Decrypt(server, encrypted));
+            // CBC payloads rely on the packet envelope instead — covered by HeaderSecurityTests.
+        }
 
-            var encrypted = alice.Encrypt(new byte[] { 1, 2, 3 });
-            Assert.Null(wrongKey.Decrypt(encrypted));
-            Assert.Null(wrongToken.Decrypt(encrypted));
+        [Theory]
+        [MemberData(nameof(Suites))]
+        public void Different_Psk_Token_Or_Suite_Yields_Incompatible_Keys(CipherSuite suite) {
+            var (client, server) = (ConnectionCrypto.FromPresharedKey(Psk, 42, suite, true).CreateLinkSecurity(TransportType.Tcp),
+                                    ConnectionCrypto.FromPresharedKey(Psk, 42, suite, false).CreateLinkSecurity(TransportType.Tcp));
+            var wrongKey = ConnectionCrypto.FromPresharedKey(Encoding.ASCII.GetBytes("another-key-another-key-32bytes!"), 42, suite, false)
+                                           .CreateLinkSecurity(TransportType.Tcp);
+            var wrongToken = ConnectionCrypto.FromPresharedKey(Psk, 43, suite, false).CreateLinkSecurity(TransportType.Tcp);
+            var otherSuite = suite == CipherSuite.AesGcm ? CipherSuite.AesCbcHmacSha256 : (CipherSuites.GcmSupported ? CipherSuite.AesGcm : suite);
+
+            var envelope = client.Wrap(ReadOnlySpan<byte>.Empty, new byte[] { 0x10, 0, 1, 2, 3 });
+            Assert.True(server.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
+            Assert.False(wrongKey.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
+            Assert.False(wrongToken.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
+            if (otherSuite != suite) {
+                var mismatched = ConnectionCrypto.FromPresharedKey(Psk, 42, otherSuite, false).CreateLinkSecurity(TransportType.Tcp);
+                Assert.False(mismatched.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
+            }
         }
 
         [Fact]
@@ -61,12 +96,19 @@ namespace NetSync.Tests {
         [Fact]
         public void Compressor_Roundtrips_And_Rejects_Garbage() {
             var compressible = Encoding.ASCII.GetBytes(string.Concat(Enumerable.Repeat("NetSync compresses this. ", 400)));
-            var blob = Compressor.Compress(compressible);
-            Assert.True(blob.Length < compressible.Length);
-            Assert.Equal(compressible, Compressor.Decompress(blob, NullNetLogger.Instance));
+            var blob = Compressor.TryCompress(compressible, out int blobLength)!;
+            Assert.True(blobLength < compressible.Length);
+            var inflated = Compressor.Decompress(blob, 0, blobLength, 1 << 20, NullNetLogger.Instance, out int inflatedLength);
+            Assert.Equal(compressible, inflated!.AsSpan(0, inflatedLength).ToArray());
 
+            Assert.Null(Compressor.Decompress(blob, 0, blobLength - 1, 1 << 20, NullNetLogger.Instance, out _)); // truncated
+            Assert.Null(Compressor.Decompress(blob, 0, blobLength, compressible.Length - 1, NullNetLogger.Instance, out _)); // over the cap
             blob[7] ^= 0xFF; // corrupt the deflate stream
-            Assert.Null(Compressor.Decompress(blob, NullNetLogger.Instance));
+            Assert.Null(Compressor.Decompress(blob, 0, blobLength, 1 << 20, NullNetLogger.Instance, out _));
+
+            var random = new byte[1000];
+            new Random(1).NextBytes(random);
+            Assert.Null(Compressor.TryCompress(random, out _)); // incompressible: not worth sending compressed
         }
 
         [Fact]
@@ -75,18 +117,19 @@ namespace NetSync.Tests {
             var incompressible = new byte[4096];
             new Random(2).NextBytes(incompressible);
 
-            var encoded = ChannelTransform.Encode(channel, null, incompressible);
-            Assert.Equal(incompressible.Length + 1, encoded.Length); // flags byte only
-            Assert.Equal(incompressible, ChannelTransform.Decode(channel, null, encoded.ToArray(), NullNetLogger.Instance));
+            var encoded = ChannelTransform.Encode(channel, null, incompressible, out int encodedLength);
+            Assert.Equal(incompressible.Length + 1, encodedLength); // flags byte only
+            var decoded = ChannelTransform.Decode(channel, null, encoded, 0, encodedLength, 1 << 20, NullNetLogger.Instance, out int decodedLength);
+            Assert.Equal(incompressible, decoded!.AsSpan(0, decodedLength).ToArray());
         }
 
         [Fact]
         public void Transform_Rejects_Plaintext_On_Encrypted_Channel() {
             var channel = new ChannelConfig(TransportType.Tcp, encryption: true);
-            using var crypto = ConnectionCrypto.FromPresharedKey(Psk, 1);
+            using var crypto = ConnectionCrypto.FromPresharedKey(Psk, 1, CipherSuite.AesCbcHmacSha256, isClient: false);
             // flags byte says "not encrypted" — downgrade attempt must be dropped
             var forged = new byte[] { 0x00, 1, 2, 3 };
-            Assert.Null(ChannelTransform.Decode(channel, crypto, forged, NullNetLogger.Instance));
+            Assert.Null(ChannelTransform.Decode(channel, crypto, forged, 0, forged.Length, 1 << 20, NullNetLogger.Instance, out _));
         }
 
         [Fact]
@@ -143,14 +186,13 @@ namespace NetSync.Tests {
             using var server = new NetServer(serverConfig);
             int port = await server.StartAsync(0);
 
-            // Client with no encryption tries to join a PSK server.
-            var clientConfig = new NetConfig { EventDelivery = EventDelivery.Immediate, ConnectTimeoutMs = 5000 };
-            clientConfig.Channels[0] = new ChannelConfig(TransportType.Tcp);
-            clientConfig.Channels[2] = new ChannelConfig(TransportType.Udp, ReliabilityMode.ReliableOrdered);
+            // Same channel table, different key exchange (ECDH client vs PSK server).
+            var (clientConfig, _) = MakeSecureConfigs(KeyExchangeMode.Ecdh);
             using var client = new NetClient(clientConfig);
 
-            var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            var ex = await Assert.ThrowsAsync<ConnectionRejectedException>(async () =>
                 await client.ConnectAsync("127.0.0.1", port));
+            Assert.Equal(ConnectionRejection.Encryption, ex.Rejection);
             Assert.Contains("encryption mode mismatch", ex.Message);
             await server.StopAsync();
         }
@@ -163,22 +205,22 @@ namespace NetSync.Tests {
         }
 
         [Fact]
-        public async Task Wrong_Psk_Drops_Data_Instead_Of_Delivering_Garbage() {
+        public async Task Wrong_Psk_Fails_The_Connect_With_A_Clear_Error() {
             var (clientConfig, serverConfig) = MakeSecureConfigs(KeyExchangeMode.PresharedKey);
             clientConfig.Encryption.PresharedKey = Encoding.ASCII.GetBytes("wrong-key-wrong-key-wrong-key-32");
 
             using var server = new NetServer(serverConfig);
-            int received = 0;
-            server.DataReceived += (_, _, _) => Interlocked.Increment(ref received);
+            int opened = 0;
+            server.ConnectionOpened += _ => Interlocked.Increment(ref opened);
             int port = await server.StartAsync(0);
 
             using var client = new NetClient(clientConfig);
-            await client.ConnectAsync("127.0.0.1", port); // handshake itself is not keyed
-
-            await client.SendAsync(0, new byte[] { 9, 9, 9 }); // encrypted with the wrong key
-            await Task.Delay(700);
-
-            Assert.Equal(0, received); // MAC check failed server-side → dropped, not delivered
+            // The Join is enveloped with the wrong key: the server can't verify it and says so,
+            // instead of letting the client believe it is connected while all data is dropped.
+            var ex = await Assert.ThrowsAsync<ConnectionRejectedException>(() => client.ConnectAsync("127.0.0.1", port));
+            Assert.Equal(ConnectionRejection.Authentication, ex.Rejection);
+            Assert.False(client.IsConnected);
+            Assert.Equal(0, Volatile.Read(ref opened));
             await server.StopAsync();
         }
 

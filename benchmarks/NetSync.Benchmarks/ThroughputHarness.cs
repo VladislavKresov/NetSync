@@ -13,33 +13,47 @@ namespace NetSync.Benchmarks {
     /// </summary>
     internal static class ThroughputHarness {
         public static async Task RunAsync() {
-            var config = MakeConfig();
-            using var server = new NetServer(MakeConfig());
-            server.DataReceived += (conn, channel, data) => _ = conn.SendAsync(channel, data);
-            int port = await server.StartAsync(0);
-
-            using var client = new NetClient(config);
-            await client.ConnectAsync("127.0.0.1", port);
-
             Console.WriteLine("NetSync loopback throughput (client+server in one process)");
             Console.WriteLine($"OS: {Environment.OSVersion}, .NET {Environment.Version}, ServerGC: {System.Runtime.GCSettings.IsServerGC}");
             Console.WriteLine();
 
-            await MeasureEchoRateAsync(client, channel: 0, payloadSize: 64, messages: 20_000, "TCP small packets (64 B echo)");
-            await MeasureEchoRateAsync(client, channel: 1, payloadSize: 64, messages: 20_000, "UDP small packets (64 B echo)");
-            await MeasureEchoRateAsync(client, channel: 1, payloadSize: 1150, messages: 20_000, "UDP MTU-size packets (1150 B echo)");
-            await MeasureEchoRateAsync(client, channel: 2, payloadSize: 64, messages: 20_000, "UDP reliable-ordered small packets (64 B echo)");
-            await MeasureEchoRateAsync(client, channel: 3, payloadSize: 64, messages: 20_000, "TCP encrypted small packets (64 B echo, AES-CBC+HMAC)");
-            await MeasureBulkAsync(client, channel: 0, totalBytes: 256L * 1024 * 1024, chunk: 512 * 1024, "TCP bulk transfer (256 MB, fragmented)");
-            await MeasureBulkAsync(client, channel: 2, totalBytes: 32L * 1024 * 1024, chunk: 256 * 1024, "UDP reliable-ordered bulk (32 MB, fragmented)");
-            await MeasureLatencyAsync(client, channel: 1, samples: 2_000, "UDP RTT (1-byte echo)");
-            await MeasureLatencyAsync(client, channel: 2, samples: 2_000, "UDP reliable-ordered RTT (1-byte echo)");
+            Console.WriteLine("== Plain connection (no key exchange) ==");
+            await RunPairAsync(secure: false, async client => {
+                await MeasureEchoRateAsync(client, channel: 0, payloadSize: 64, messages: 20_000, "TCP small packets (64 B echo)");
+                await MeasureEchoRateAsync(client, channel: 1, payloadSize: 64, messages: 20_000, "UDP small packets (64 B echo)");
+                await MeasureEchoRateAsync(client, channel: 1, payloadSize: 1100, messages: 20_000, "UDP MTU-size packets (1100 B echo)");
+                await MeasureEchoRateAsync(client, channel: 2, payloadSize: 64, messages: 20_000, "UDP reliable-ordered small packets (64 B echo)");
+                await MeasureBulkAsync(client, channel: 0, totalBytes: 256L * 1024 * 1024, chunk: 512 * 1024, "TCP bulk transfer (256 MB, fragmented)");
+                await MeasureBulkAsync(client, channel: 2, totalBytes: 32L * 1024 * 1024, chunk: 256 * 1024, "UDP reliable-ordered bulk (32 MB, fragmented)");
+                await MeasureLatencyAsync(client, channel: 1, samples: 2_000, "UDP RTT (1-byte echo)");
+                await MeasureLatencyAsync(client, channel: 2, samples: 2_000, "UDP reliable-ordered RTT (1-byte echo)");
+            });
+
+            Console.WriteLine();
+            Console.WriteLine("== Secure connection (PSK: every packet authenticated, channel 3 also encrypted) ==");
+            await RunPairAsync(secure: true, async client => {
+                await MeasureEchoRateAsync(client, channel: 0, payloadSize: 64, messages: 20_000, "TCP authenticated small packets (64 B echo)");
+                await MeasureEchoRateAsync(client, channel: 1, payloadSize: 64, messages: 20_000, "UDP authenticated small packets (64 B echo)");
+                await MeasureEchoRateAsync(client, channel: 3, payloadSize: 64, messages: 20_000, "TCP authenticated+encrypted small packets (64 B echo)");
+                await MeasureLatencyAsync(client, channel: 1, samples: 2_000, "UDP authenticated RTT (1-byte echo)");
+            });
+        }
+
+        private static async Task RunPairAsync(bool secure, Func<NetClient, Task> measurements) {
+            using var server = new NetServer(MakeConfig(secure));
+            // Zero-copy echo: SendAsync copies the data before it returns.
+            server.MessageReceived += (conn, channel, data) => _ = conn.SendAsync(channel, data);
+            int port = await server.StartAsync(0);
+
+            using var client = new NetClient(MakeConfig(secure));
+            await client.ConnectAsync("127.0.0.1", port);
+            await measurements(client);
 
             client.Disconnect();
             await server.StopAsync();
         }
 
-        private static NetConfig MakeConfig() {
+        private static NetConfig MakeConfig(bool secure) {
             var config = new NetConfig {
                 EventDelivery = EventDelivery.Immediate,
                 PingIntervalMs = 1000
@@ -47,11 +61,13 @@ namespace NetSync.Benchmarks {
             config.Channels[0] = new ChannelConfig(TransportType.Tcp);
             config.Channels[1] = new ChannelConfig(TransportType.Udp);
             config.Channels[2] = new ChannelConfig(TransportType.Udp, ReliabilityMode.ReliableOrdered);
-            config.Channels[3] = new ChannelConfig(TransportType.Tcp, encryption: true);
-            config.Encryption = new EncryptionConfig {
-                Mode = KeyExchangeMode.PresharedKey,
-                PresharedKey = System.Text.Encoding.ASCII.GetBytes("benchmark-psk-benchmark-psk-32b!")
-            };
+            if (secure) {
+                config.Channels[3] = new ChannelConfig(TransportType.Tcp, encryption: true);
+                config.Encryption = new EncryptionConfig {
+                    Mode = KeyExchangeMode.PresharedKey,
+                    PresharedKey = System.Text.Encoding.ASCII.GetBytes("benchmark-psk-benchmark-psk-32b!")
+                };
+            }
             return config;
         }
 
@@ -60,13 +76,13 @@ namespace NetSync.Benchmarks {
             int received = 0;
             var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            void OnData(byte ch, byte[] data) {
+            void OnData(byte ch, ReadOnlyMemory<byte> data) {
                 if (ch == channel && Interlocked.Increment(ref received) >= messages) {
                     done.TrySetResult(true);
                 }
             }
 
-            client.DataReceived += OnData;
+            client.MessageReceived += OnData;
             // Window of in-flight messages: keeps pipes full without an unbounded queue.
             const int window = 64;
             int sent = 0;
@@ -100,7 +116,7 @@ namespace NetSync.Benchmarks {
             await Task.WhenAny(done.Task, Task.Delay(2000));
             stopwatch.Stop();
             long allocatedAfter = GC.GetTotalAllocatedBytes(precise: true);
-            client.DataReceived -= OnData;
+            client.MessageReceived -= OnData;
 
             int completed = Math.Min(Volatile.Read(ref received), messages);
             double lossPercent = 100.0 * (messages - completed) / messages;
@@ -117,13 +133,13 @@ namespace NetSync.Benchmarks {
             long receivedBytes = 0;
             var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            void OnData(byte ch, byte[] data) {
+            void OnData(byte ch, ReadOnlyMemory<byte> data) {
                 if (ch == channel && Interlocked.Add(ref receivedBytes, data.Length) >= totalBytes) {
                     done.TrySetResult(true);
                 }
             }
 
-            client.DataReceived += OnData;
+            client.MessageReceived += OnData;
             var stopwatch = Stopwatch.StartNew();
             var pump = Task.Run(async () => {
                 for (long sent = 0; sent < totalBytes; sent += chunk) {
@@ -138,7 +154,7 @@ namespace NetSync.Benchmarks {
             bool finished = await Task.WhenAny(done.Task, Task.Delay(300_000)) == done.Task;
             stopwatch.Stop();
             await pump;
-            client.DataReceived -= OnData;
+            client.MessageReceived -= OnData;
 
             if (!finished) {
                 Console.WriteLine($"{label}: TIMEOUT after {receivedBytes / 1024 / 1024} MB");
@@ -155,13 +171,13 @@ namespace NetSync.Benchmarks {
             var rtts = new double[samples];
             var echoed = new SemaphoreSlim(0);
 
-            void OnData(byte ch, byte[] data) {
+            void OnData(byte ch, ReadOnlyMemory<byte> data) {
                 if (ch == channel) {
                     echoed.Release();
                 }
             }
 
-            client.DataReceived += OnData;
+            client.MessageReceived += OnData;
             var stopwatch = new Stopwatch();
             for (int i = 0; i < samples; i++) {
                 stopwatch.Restart();
@@ -169,7 +185,7 @@ namespace NetSync.Benchmarks {
                 await echoed.WaitAsync(5000);
                 rtts[i] = stopwatch.Elapsed.TotalMilliseconds;
             }
-            client.DataReceived -= OnData;
+            client.MessageReceived -= OnData;
 
             Array.Sort(rtts);
             Console.WriteLine($"{label}:");

@@ -13,6 +13,27 @@ namespace NetSync.Pipeline.Security {
     internal static class EcdhKeyExchange {
         public const int PublicKeySize = 64;
 
+        private static readonly Lazy<bool> Supported = new Lazy<bool>(Probe);
+
+        /// <summary>
+        /// Whether this runtime can actually do P-256 ECDH. Some Mono/IL2CPP builds ship
+        /// the type but throw at use; probe a full key agreement once.
+        /// </summary>
+        public static bool IsSupported => Supported.Value;
+
+        private static bool Probe() {
+            try {
+                using var a = Create();
+                using var b = Create();
+                var secretA = DeriveSessionSecret(a, ExportPublicKey(b), 1);
+                var secretB = DeriveSessionSecret(b, ExportPublicKey(a), 1);
+                return secretA.Length == 32 && secretA.AsSpan().SequenceEqual(secretB);
+            }
+            catch (Exception) {
+                return false;
+            }
+        }
+
         public static ECDiffieHellman Create() {
             return ECDiffieHellman.Create(ECCurve.NamedCurves.nistP256);
         }

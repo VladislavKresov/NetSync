@@ -10,5 +10,8 @@ namespace NetSync.Internal {
 
         /// <summary>Milliseconds since an arbitrary fixed origin. Monotonic, thread-safe.</summary>
         public static long NowMs => (long)(Stopwatch.GetTimestamp() * TicksToMs);
+
+        /// <summary>Same clock with sub-millisecond resolution (for time synchronization).</summary>
+        public static double PreciseMs => Stopwatch.GetTimestamp() * TicksToMs;
     }
 }

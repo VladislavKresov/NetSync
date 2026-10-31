@@ -9,11 +9,15 @@
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
-  <!-- Intentionally package-free: measurements use Stopwatch + GC counters so the
-       benchmarks run anywhere the library does. -->
+  <!-- Measurements use Stopwatch + GC counters (no benchmarking framework). LiteNetLib is here
+       only as the comparison baseline (`compare`); the NetSync core itself has no dependencies. -->
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetSync\NetSync.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="LiteNetLib" Version="2.1.4" />
   </ItemGroup>
 
 </Project>

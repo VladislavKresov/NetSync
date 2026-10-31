@@ -7,4 +7,8 @@ artifacts/
 TestResults/
 BenchmarkDotNet.Artifacts/
 *.binlog
+# Obsidian per-user state (the vault config in docs/.obsidian is shared)
+docs/.obsidian/workspace*.json
+docs/.obsidian/cache
+docs/.trash/
 .editorconfig

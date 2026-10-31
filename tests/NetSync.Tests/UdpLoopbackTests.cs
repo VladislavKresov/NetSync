@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 using NetSync.Transports.Udp;
 using Xunit;
@@ -34,12 +35,29 @@ namespace NetSync.Tests {
 
             using var client = new UdpTransport(pingIntervalMs: 100);
             await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
+            await client.SendAsync(new byte[] { 1 }); // peers are opened by data, never by pings (anti-reflection)
 
             var peer = await WithTimeout(peerSeen.Task);
             await Task.Delay(600);
 
             Assert.True(client.PingMs >= 0, $"client ping should be measured, got {client.PingMs}");
             Assert.True(peer.PingMs >= 0, $"server-side peer ping should be measured, got {peer.PingMs}");
+            await server.StopAsync();
+        }
+
+        [Fact]
+        public async Task Pings_From_Unknown_Endpoints_Do_Not_Create_Peers() {
+            using var server = new UdpServerTransport(pingIntervalMs: 100);
+            int peers = 0;
+            server.PeerConnected += _ => Interlocked.Increment(ref peers);
+            int port = await server.StartAsync(0);
+
+            using var client = new UdpTransport(pingIntervalMs: 50); // pings only, never sends data
+            await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
+            await Task.Delay(400);
+
+            Assert.Equal(0, Volatile.Read(ref peers));
+            Assert.Equal(-1, client.PingMs); // and the server never answered: no reflection
             await server.StopAsync();
         }
 
@@ -65,6 +83,7 @@ namespace NetSync.Tests {
 
             using var client = new UdpTransport(pingIntervalMs: 100);
             await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
+            await client.SendAsync(new byte[] { 1 });
             await Task.Delay(200);
             client.Disconnect(); // goes silent; server must expire the peer
 

@@ -10,7 +10,7 @@ namespace NetSync.Serialization {
     /// wrap parsing of untrusted data in a try/catch.
     /// </summary>
     public sealed class NetReader {
-        private readonly ReadOnlyMemory<byte> _data;
+        private ReadOnlyMemory<byte> _data;
         private int _position;
 
         public int Position => _position;
@@ -22,8 +22,14 @@ namespace NetSync.Serialization {
 
         public NetReader(byte[] data) : this(new ReadOnlyMemory<byte>(data)) { }
 
+        /// <summary>Points this reader at new data (lets hot paths reuse one instance).</summary>
+        internal void Reset(ReadOnlyMemory<byte> data) {
+            _data = data;
+            _position = 0;
+        }
+
         private ReadOnlySpan<byte> Consume(int count) {
-            if (count < 0 || _position + count > _data.Length) {
+            if (count < 0 || count > _data.Length - _position) { // no overflow for huge counts
                 throw new EndOfStreamException($"Tried to read {count} bytes with {Remaining} remaining");
             }
             var span = _data.Span.Slice(_position, count);
@@ -72,8 +78,20 @@ namespace NetSync.Serialization {
             return (int)(encoded >> 1) ^ -(int)(encoded & 1);
         }
 
+        /// <summary>
+        /// A length prefix from untrusted data: anything beyond what is left — including values that
+        /// don't fit an int — is malformed input (EndOfStreamException), never an overflow.
+        /// </summary>
+        private int ReadLength() {
+            uint length = ReadVarUInt();
+            if (length > (uint)Remaining) {
+                throw new EndOfStreamException($"Length prefix {length} exceeds the {Remaining} bytes remaining");
+            }
+            return (int)length;
+        }
+
         public string ReadString() {
-            int byteCount = checked((int)ReadVarUInt());
+            int byteCount = ReadLength();
             if (byteCount == 0) {
                 return string.Empty;
             }
@@ -86,16 +104,12 @@ namespace NetSync.Serialization {
         }
 
         public byte[] ReadBytes() {
-            int count = checked((int)ReadVarUInt());
-            return Consume(count).ToArray();
+            return Consume(ReadLength()).ToArray();
         }
 
         /// <summary>Zero-copy variant: a slice of the underlying payload.</summary>
         public ReadOnlyMemory<byte> ReadBytesMemory() {
-            int count = checked((int)ReadVarUInt());
-            if (_position + count > _data.Length) {
-                throw new EndOfStreamException($"Tried to read {count} bytes with {Remaining} remaining");
-            }
+            int count = ReadLength();
             var memory = _data.Slice(_position, count);
             _position += count;
             return memory;

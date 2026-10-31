@@ -30,6 +30,9 @@ namespace NetSync.Transports {
         /// Queues data for sending. Returns once the payload is accepted by the send
         /// queue (not once it hits the wire). Throws if the transport is not connected
         /// or the queue is full (backpressure).
+        /// Contract: implementations read <paramref name="data"/> only before this method
+        /// returns (copy it if it must outlive the call) — callers return pooled buffers
+        /// immediately after the call, without awaiting the task.
         /// </summary>
         ValueTask SendAsync(ReadOnlyMemory<byte> data, CancellationToken ct = default);
 

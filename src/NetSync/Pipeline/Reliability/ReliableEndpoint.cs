@@ -11,36 +11,84 @@ using NetSync.Transports;
 
 namespace NetSync.Pipeline.Reliability {
     /// <summary>
-    /// Reliability engine for one unreliable datagram link (ENet-style ARQ).
-    /// One instance per UDP link; transport-agnostic — it only needs a send delegate.
+    /// Reliability engine for one unreliable datagram link (ENet-style ARQ with
+    /// TCP-grade congestion control). One instance per datagram link; transport-agnostic
+    /// — it only needs a send delegate.
     ///
     /// Per channel, depending on <see cref="ReliabilityMode"/>:
-    /// - sequence numbers (16-bit, wrap-aware) with a 256-packet send window,
-    /// - immediate ACKs carrying a 32-packet history bitmask,
-    /// - RTO-based retransmission with exponential backoff, RTO derived from link RTT,
-    /// - duplicate elimination and (for ReliableOrdered) reorder buffering,
-    /// - automatic fragmentation of payloads above <see cref="FragmentThreshold"/>.
+    /// - 16-bit wrap-aware sequence numbers and a 256-packet range window,
+    /// - ACKs carrying a 32-packet history bitmask: immediate, or — on links that report
+    ///   datagram boundaries (<see cref="DeferAcks"/>) — one per channel per received
+    ///   datagram, sent together with the replies to it,
+    /// - RTO from ACK-sampled SRTT/RTTVAR (Karn's rule), exponential backoff,
+    /// - fast retransmit after 3 later packets were acked (loss recovered in ~1 RTT),
+    /// - congestion window per channel: Reno-style, or delay-based scavenger for
+    ///   <see cref="ChannelPriority.Low"/> channels,
+    /// - duplicate elimination and (ReliableOrdered) reorder buffering,
+    /// - fragmentation above <see cref="FragmentSize"/> (1100 B, raised to fit the path MTU
+    ///   once measured), reliable or unreliable.
     ///
-    /// Threading: HandleRelData/HandleAck are called from the transport receive thread
-    /// (one per link); Send* may be called from any thread; the retransmit loop runs on
-    /// its own task. Sender state is guarded by a per-channel lock, receiver state is
-    /// only touched by the receive thread.
+    /// Threading: HandleRelData/HandleAck are called from the link's receive thread;
+    /// Send* may be called from any thread; retransmission timers run on the shared
+    /// <see cref="ReliabilityClock"/> thread (<see cref="Tick"/>).
+    /// Sender state is guarded by a per-channel lock (then the RTT lock — always in
+    /// that order); receiver state is only touched by the receive thread.
+    ///
+    /// Memory: every packet lives in a pooled buffer. A pending packet's buffer can be
+    /// read by a (re)transmission outside the lock while an ACK removes it, so it goes
+    /// back to the pool only when no send is reading it (PendingPacket.InFlight).
+    /// The send delegate must consume the bytes before it returns (all NetSync links do).
+    /// Delivered payloads are valid only during the deliver callback.
     /// </summary>
     internal sealed class ReliableEndpoint : IDisposable {
+        /// <summary>Receives a payload; buffer[offset..offset+count) is valid only during the call.</summary>
+        public delegate void SegmentHandler(byte channel, byte[] buffer, int offset, int count);
+
         public const int WindowSize = 256;
-        /// <summary>Payloads above this size are split into reliable fragments (fits UDP MTU with headers).</summary>
+        /// <summary>Payloads above this size are split into fragments (fits UDP MTU with headers).</summary>
         public const int FragmentThreshold = 1100;
+        /// <summary>Largest fragment the path-MTU logic may set (1472-byte IPv4 datagram minus headers).</summary>
+        public const int MaxFragmentSize = 1472 - 1 - RelDataHeaderSize - PacketFragmenter.HeaderSize;
+
+        private int _fragmentSize = FragmentThreshold;
+
+        /// <summary>Fragment payload that fits a datagram of <paramref name="datagramSize"/> bytes with every header.</summary>
+        public static int FragmentSizeForDatagram(int datagramSize, bool enveloped) {
+            return datagramSize - 1 /* transport type */ - (enveloped ? Security.LinkSecurity.HeaderSize : 0)
+                   - RelDataHeaderSize - PacketFragmenter.HeaderSize;
+        }
+
+        /// <summary>
+        /// Payload bytes per datagram for reliable and fragmented sends. Starts at the
+        /// always-safe <see cref="FragmentThreshold"/>; raised when the path MTU has been
+        /// measured (fewer packets and ACKs for bulk data). Receivers accept any size.
+        /// </summary>
+        public int FragmentSize {
+            get => Volatile.Read(ref _fragmentSize);
+            set => Volatile.Write(ref _fragmentSize, Math.Max(FragmentThreshold, Math.Min(MaxFragmentSize, value)));
+        }
         public const int RelDataHeaderSize = 5;   // [type][flags][channel][seq:2]
         public const int RelAckSize = 8;          // [type][channel][anchorSeq:2][mask:4]
         private const byte FlagFragment = 0x01;
+        private const int FastRetransmitThreshold = 3;
+
+        private const int MaxSparePendingPackets = 512;
 
         private sealed class PendingPacket {
-            public byte[] Message = Array.Empty<byte>();
+            public byte[] Buffer = Array.Empty<byte>();
+            public int Length;
+            public long FirstSentAtMs;
             public long LastSentAtMs;
             public int Attempts;
+            /// <summary>Sends currently reading <see cref="Buffer"/> outside the lock.</summary>
+            public int InFlight;
+            /// <summary>Acked or disposed while in flight: the last sender recycles it.</summary>
+            public bool Released;
         }
 
         private sealed class SenderState {
+            public readonly ReliabilityMode Mode;
+            public readonly CongestionWindow? Congestion;
             public ushort NextSeq;
             /// <summary>Oldest unacked seq; equals NextSeq when nothing is pending.
             /// The send window is a RANGE gate: NextSeq may never run more than
@@ -48,25 +96,44 @@ namespace NetSync.Pipeline.Reliability {
             /// WindowSize) could not distinguish new packets from ancient ones.</summary>
             public ushort LowestUnacked;
             public readonly Dictionary<ushort, PendingPacket> Pending = new Dictionary<ushort, PendingPacket>();
+            public readonly Stack<PendingPacket> Spare = new Stack<PendingPacket>();
             public TaskCompletionSource<bool>? WindowWaiter;
             public bool Closed;
             public readonly object Lock = new object();
+
+            public SenderState(ReliabilityMode mode, CongestionWindow? congestion) {
+                Mode = mode;
+                Congestion = congestion;
+            }
+
+            public bool IsReliable => Mode == ReliabilityMode.Reliable || Mode == ReliabilityMode.ReliableOrdered;
         }
 
-        private sealed class HeldPacket {
-            public byte Flags;
-            public byte[] Payload = Array.Empty<byte>();
+        private readonly struct HeldPacket {
+            public readonly byte Flags;
+            public readonly byte[] Buffer; // pooled copy
+            public readonly int Length;
+
+            public HeldPacket(byte flags, byte[] buffer, int length) {
+                Flags = flags;
+                Buffer = buffer;
+                Length = length;
+            }
         }
 
         private sealed class ReceiverState {
-            public ReliabilityMode Mode;
+            public readonly ReliabilityMode Mode;
             public ushort Highest = 0xFFFF;                       // unordered + sequenced ("-1")
             public readonly bool[] SeenRing;                      // unordered dedup ring
             public ushort Expected;                               // ordered: next seq to deliver
             public readonly Dictionary<ushort, HeldPacket>? Held; // ordered reorder buffer
             public readonly FragmentBuffer? Fragments;
+            public uint LastDeliveredMessageId;                   // unreliable-fragmented staleness
+            public bool HasDeliveredMessage;
+            public bool AckPending;                               // deferred ack waiting for FlushAcks
+            public ushort AckAnchor;
 
-            public ReceiverState(ReliabilityMode mode) {
+            public ReceiverState(ReliabilityMode mode, int maxMessageSize) {
                 Mode = mode;
                 SeenRing = mode == ReliabilityMode.Reliable ? new bool[WindowSize] : Array.Empty<bool>();
                 if (mode == ReliabilityMode.ReliableOrdered) {
@@ -76,15 +143,35 @@ namespace NetSync.Pipeline.Reliability {
                     // Under reliability fragments cannot be lost, only delayed by
                     // retransmission — the default 5 s reassembly timeout would drop
                     // slow transfers mid-flight.
-                    Fragments = new FragmentBuffer { FragmentTimeoutMs = 600_000 };
+                    Fragments = new FragmentBuffer {
+                        FragmentTimeoutMs = 600_000,
+                        MaxPacketBytes = maxMessageSize,
+                        MaxBufferedBytes = 2L * maxMessageSize,
+                        MaxFragmentsPerPacket = maxMessageSize / FragmentThreshold + 2
+                    };
+                }
+                else if (mode == ReliabilityMode.UnreliableFragmented) {
+                    // Real-time data: an incomplete message is worthless after a moment,
+                    // and a handful in flight is plenty (older ones are stale anyway).
+                    Fragments = new FragmentBuffer {
+                        FragmentTimeoutMs = 2_000,
+                        MaxConcurrentPackets = 8,
+                        MaxPacketBytes = maxMessageSize,
+                        MaxBufferedBytes = 2L * maxMessageSize,
+                        MaxFragmentsPerPacket = maxMessageSize / FragmentThreshold + 2
+                    };
                 }
             }
         }
 
         private readonly Dictionary<byte, SenderState> _senders = new Dictionary<byte, SenderState>();
         private readonly Dictionary<byte, ReceiverState> _receivers = new Dictionary<byte, ReceiverState>();
+        private readonly RttEstimator _rtt = new RttEstimator();
+        private readonly object _rttLock = new object();
         private readonly Func<ReadOnlyMemory<byte>, ValueTask> _sendAsync;
-        private readonly Action<byte, byte[]> _deliver;
+        private readonly SegmentHandler _deliver;
+        private readonly List<PendingPacket> _fastResend = new List<PendingPacket>(); // receive thread only
+        private readonly List<byte> _ackChannels = new List<byte>();                // receive thread only
         private readonly Func<int> _getPingMs;
         private readonly Action<DisconnectReason> _onDead;
         private readonly INetLogger _logger;
@@ -92,10 +179,16 @@ namespace NetSync.Pipeline.Reliability {
         private readonly int _retransmitScanMs;
         private readonly int _rtoFloorMs;
         private readonly int _rtoCeilingMs;
-        private CancellationTokenSource? _cts;
+        private readonly List<PendingPacket> _due = new List<PendingPacket>(); // clock thread only
+        private long _lastScanMs;
+        private int _started;
         private int _disposed;
         private int _deadSignaled;
+        private long _packetsSent;
+        private long _retransmissions;
+        private long _fastRetransmissions;
 
+        /// <summary>Convenience overload: each delivered payload is copied into its own array.</summary>
         public ReliableEndpoint(
             Dictionary<byte, ChannelConfig> channels,
             Func<ReadOnlyMemory<byte>, ValueTask> sendAsync,
@@ -104,9 +197,27 @@ namespace NetSync.Pipeline.Reliability {
             Action<DisconnectReason> onDead,
             INetLogger logger,
             int maxRetransmits = 12,
-            int retransmitScanMs = 20,
-            int rtoFloorMs = 50,
-            int rtoCeilingMs = 3000) {
+            int retransmitScanMs = 10,
+            int maxMessageSize = NetConfig.DefaultMaxMessageSize,
+            int rtoFloorMs = 30,
+            int rtoCeilingMs = 3000,
+            bool congestionControl = true)
+            : this(channels, sendAsync, (channel, buffer, offset, count) => deliver(channel, Pooled.ToArray(buffer, offset, count)),
+                   getPingMs, onDead, logger, maxRetransmits, retransmitScanMs, maxMessageSize, rtoFloorMs, rtoCeilingMs, congestionControl) { }
+
+        public ReliableEndpoint(
+            Dictionary<byte, ChannelConfig> channels,
+            Func<ReadOnlyMemory<byte>, ValueTask> sendAsync,
+            SegmentHandler deliver,
+            Func<int> getPingMs,
+            Action<DisconnectReason> onDead,
+            INetLogger logger,
+            int maxRetransmits = 12,
+            int retransmitScanMs = 10,
+            int maxMessageSize = NetConfig.DefaultMaxMessageSize,
+            int rtoFloorMs = 30,
+            int rtoCeilingMs = 3000,
+            bool congestionControl = true) {
             _sendAsync = sendAsync;
             _deliver = deliver;
             _getPingMs = getPingMs;
@@ -118,41 +229,113 @@ namespace NetSync.Pipeline.Reliability {
             _rtoCeilingMs = rtoCeilingMs;
 
             foreach (var kvp in channels) {
-                if (kvp.Value.Transport != TransportType.Udp || kvp.Value.Reliability == ReliabilityMode.Unreliable) {
+                var channel = kvp.Value;
+                if (channel.Transport != TransportType.Udp || channel.Reliability == ReliabilityMode.Unreliable) {
                     continue;
                 }
-                _senders[kvp.Key] = new SenderState();
-                _receivers[kvp.Key] = new ReceiverState(kvp.Value.Reliability);
+                bool reliable = channel.Reliability == ReliabilityMode.Reliable || channel.Reliability == ReliabilityMode.ReliableOrdered;
+                var congestion = reliable && congestionControl
+                    ? new CongestionWindow(background: channel.Priority == ChannelPriority.Low, maxWindow: WindowSize)
+                    : null;
+                _senders[kvp.Key] = new SenderState(channel.Reliability, congestion);
+                _receivers[kvp.Key] = new ReceiverState(channel.Reliability, maxMessageSize);
             }
         }
 
+        /// <summary>
+        /// Collapse the acks for one received datagram into one per channel, sent by
+        /// <see cref="FlushAcks"/>. Only for links that call FlushAcks after every datagram
+        /// — otherwise acks would never leave. Set before traffic starts.
+        /// </summary>
+        public bool DeferAcks { get; set; }
+
         public void Start() {
-            if (_cts != null) {
-                return;
+            if (Interlocked.Exchange(ref _started, 1) == 0) {
+                ReliabilityClock.Register(this);
             }
-            _cts = new CancellationTokenSource();
-            var token = _cts.Token;
-            _ = Task.Run(() => RetransmitLoopAsync(token));
+        }
+
+        /// <summary>First transmissions of reliable packets.</summary>
+        public long PacketsSent => Interlocked.Read(ref _packetsSent);
+        /// <summary>Timeout-driven retransmissions.</summary>
+        public long Retransmissions => Interlocked.Read(ref _retransmissions);
+        /// <summary>Retransmissions triggered by ACK gaps (before any timeout).</summary>
+        public long FastRetransmissions => Interlocked.Read(ref _fastRetransmissions);
+
+        public double SmoothedRttMs {
+            get {
+                lock (_rttLock) {
+                    return _rtt.HasSample ? _rtt.SmoothedRtt : -1;
+                }
+            }
+        }
+
+        /// <summary>Current congestion window of a reliable channel, in packets (-1 if none).</summary>
+        public double GetCongestionWindow(byte channel) {
+            if (!_senders.TryGetValue(channel, out var sender) || sender.Congestion == null) {
+                return -1;
+            }
+            lock (sender.Lock) {
+                return sender.Congestion.Window;
+            }
         }
 
         // ---------------------------------------------------------------- send
 
-        public async ValueTask SendReliableAsync(byte channel, ReadOnlyMemory<byte> data, CancellationToken ct = default) {
+        /// <summary>
+        /// Sends on a channel according to its configured mode. <paramref name="data"/> is
+        /// read only before this returns; the caller may reuse it right away.
+        /// </summary>
+        public ValueTask SendAsync(byte channel, ReadOnlyMemory<byte> data, CancellationToken ct = default) {
             var sender = GetSender(channel);
-            if (data.Length <= FragmentThreshold) {
-                await SendReliablePacketAsync(sender, channel, flags: 0, data.Span, default, ct).ConfigureAwait(false);
-                return;
-            }
+            return sender.Mode switch {
+                ReliabilityMode.UnreliableSequenced => SendSequencedAsync(channel, data),
+                ReliabilityMode.UnreliableFragmented => SendUnreliableFragmentedAsync(channel, data),
+                _ => SendReliableAsync(channel, data, ct)
+            };
+        }
 
-            // Fragmented: each chunk is its own reliable packet; the window semaphore
-            // paces the stream so a 100 MB file cannot flood the link.
-            uint fragmentId = PacketFragmenter.NextSequenceId();
-            int totalFragments = (data.Length + FragmentThreshold - 1) / FragmentThreshold;
-            for (int i = 0; i < totalFragments; i++) {
-                int offset = i * FragmentThreshold;
-                int chunkLength = Math.Min(FragmentThreshold, data.Length - offset);
-                var fragmentInfo = new FragmentInfo(fragmentId, (uint)i, (uint)totalFragments);
-                await SendReliablePacketAsync(sender, channel, FlagFragment, data.Span.Slice(offset, chunkLength), fragmentInfo, ct).ConfigureAwait(false);
+        public ValueTask SendReliableAsync(byte channel, ReadOnlyMemory<byte> data, CancellationToken ct = default) {
+            var sender = GetSender(channel);
+            if (data.Length <= FragmentSize) {
+                var message = BuildRelData(channel, flags: 0, data.Span, default, out int length);
+                return EnqueueAndSendAsync(sender, message, length, ct);
+            }
+            // Fragmented: each chunk is its own reliable packet; the window and the
+            // congestion controller pace the stream so a big message cannot flood the link.
+            return SendFragmentsAsync(sender, channel, data, reliable: true, ct);
+        }
+
+        public ValueTask SendSequencedAsync(byte channel, ReadOnlyMemory<byte> data) {
+            var sender = GetSender(channel);
+            if (data.Length > FragmentThreshold) {
+                throw new ArgumentException(
+                    $"UnreliableSequenced payload of {data.Length} bytes exceeds {FragmentThreshold} bytes. " +
+                    "Use UnreliableFragmented for large real-time data, or a Reliable/ReliableOrdered channel.", nameof(data));
+            }
+            var message = BuildRelData(channel, flags: 0, data.Span, default, out int length);
+            return SendUnreliable(sender, message, length);
+        }
+
+        /// <summary>
+        /// Splits a message of any size into datagram-sized fragments, no retransmission.
+        /// Always fragment-framed (even single-fragment messages) so the receiver can
+        /// order whole messages by their message id.
+        /// </summary>
+        public ValueTask SendUnreliableFragmentedAsync(byte channel, ReadOnlyMemory<byte> data) {
+            return SendFragmentsAsync(GetSender(channel), channel, data, reliable: false, CancellationToken.None);
+        }
+
+        /// <summary>Stamps the next seq and sends once; the pooled message is returned right after.</summary>
+        private ValueTask SendUnreliable(SenderState sender, byte[] message, int length) {
+            lock (sender.Lock) {
+                BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), sender.NextSeq++);
+            }
+            try {
+                return _sendAsync(new ReadOnlyMemory<byte>(message, 0, length));
+            }
+            finally {
+                Pooled.Return(message); // the link consumed it before returning
             }
         }
 
@@ -167,76 +350,197 @@ namespace NetSync.Pipeline.Reliability {
             }
         }
 
-        private ValueTask SendReliablePacketAsync(SenderState sender, byte channel, byte flags, ReadOnlySpan<byte> payload, FragmentInfo fragment, CancellationToken ct) {
-            // The message is built synchronously (spans cannot cross an await); the seq
-            // is stamped in later, under the window slot.
-            var message = BuildRelData(channel, flags, seq: 0, payload, fragment);
-            return EnqueueAndSendAsync(sender, message, ct);
-        }
-
-        private async ValueTask EnqueueAndSendAsync(SenderState sender, byte[] message, CancellationToken ct) {
-            // Backpressure: block while the seq range in flight is a full window.
-            while (true) {
-                TaskCompletionSource<bool>? waiter = null;
-                lock (sender.Lock) {
-                    if (sender.Closed) {
-                        throw new InvalidOperationException("Reliable endpoint is disposed");
-                    }
-                    if ((ushort)(sender.NextSeq - sender.LowestUnacked) < WindowSize) {
-                        ushort seq = sender.NextSeq++;
-                        BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), seq);
-                        sender.Pending[seq] = new PendingPacket { Message = message, LastSentAtMs = NetTime.NowMs };
-                    }
-                    else {
-                        waiter = sender.WindowWaiter ??= new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    }
-                }
-                if (waiter == null) {
-                    break;
-                }
-                if (ct.CanBeCanceled) {
-                    var cancelled = Task.Delay(Timeout.Infinite, ct);
-                    if (await Task.WhenAny(waiter.Task, cancelled).ConfigureAwait(false) == cancelled) {
-                        ct.ThrowIfCancellationRequested();
-                    }
-                }
-                else {
-                    await waiter.Task.ConfigureAwait(false);
+        /// <summary>
+        /// Sends fragments straight from the caller's memory while that completes
+        /// synchronously. As soon as one fragment has to wait (window, congestion), the
+        /// rest of the message is copied once into a pooled buffer, so the caller's memory
+        /// is never read after this method returns.
+        /// </summary>
+        private ValueTask SendFragmentsAsync(SenderState sender, byte channel, ReadOnlyMemory<byte> data, bool reliable, CancellationToken ct) {
+            uint id = PacketFragmenter.NextSequenceId();
+            int size = FragmentSize; // one size for the whole message
+            int total = Math.Max(1, (data.Length + size - 1) / size);
+            for (int i = 0; i < total; i++) {
+                int offset = i * size;
+                int chunkLength = Math.Min(size, data.Length - offset);
+                var pending = SendFragment(sender, channel, data.Slice(offset, chunkLength), new FragmentInfo(id, (uint)i, (uint)total), reliable, ct);
+                if (!pending.IsCompletedSuccessfully) {
+                    int restStart = offset + chunkLength;
+                    byte[]? rest = restStart < data.Length ? Pooled.Copy(data.Span.Slice(restStart)) : null;
+                    return ContinueFragmentsAsync(pending, sender, channel, rest, restStart, data.Length, size, i + 1, id, total, reliable, ct);
                 }
             }
+            return default;
+        }
 
+        private async ValueTask ContinueFragmentsAsync(ValueTask pending, SenderState sender, byte channel, byte[]? rest, int restStart,
+                                                       int dataLength, int size, int next, uint id, int total, bool reliable, CancellationToken ct) {
             try {
-                await _sendAsync(message).ConfigureAwait(false);
+                await pending.ConfigureAwait(false);
+                for (int i = next; i < total; i++) {
+                    int offset = i * size;
+                    int chunkLength = Math.Min(size, dataLength - offset);
+                    var chunk = new ReadOnlyMemory<byte>(rest, offset - restStart, chunkLength);
+                    await SendFragment(sender, channel, chunk, new FragmentInfo(id, (uint)i, (uint)total), reliable, ct).ConfigureAwait(false);
+                }
+            }
+            finally {
+                if (rest != null) {
+                    Pooled.Return(rest);
+                }
+            }
+        }
+
+        private ValueTask SendFragment(SenderState sender, byte channel, ReadOnlyMemory<byte> chunk, FragmentInfo fragment, bool reliable, CancellationToken ct) {
+            var message = BuildRelData(channel, FlagFragment, chunk.Span, fragment, out int length);
+            return reliable ? EnqueueAndSendAsync(sender, message, length, ct) : SendUnreliable(sender, message, length);
+        }
+
+        /// <summary>
+        /// Admits a reliable packet into the window and transmits it. The fast path (window
+        /// open) completes synchronously without an async state machine; otherwise waits.
+        /// Takes ownership of the pooled <paramref name="message"/> in every outcome.
+        /// </summary>
+        private ValueTask EnqueueAndSendAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
+            PendingPacket? pending;
+            lock (sender.Lock) {
+                if (sender.Closed) {
+                    Pooled.Return(message);
+                    return new ValueTask(Task.FromException(new InvalidOperationException("Reliable endpoint is disposed")));
+                }
+                pending = TryAdmitLocked(sender, message, length);
+            }
+            if (pending != null) {
+                return TransmitFirst(sender, pending);
+            }
+            return EnqueueSlowAsync(sender, message, length, ct);
+        }
+
+        private async ValueTask EnqueueSlowAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
+            // Backpressure: wait while the seq range is a full window or the congestion
+            // window says the link has enough in flight.
+            PendingPacket? pending = null;
+            try {
+                while (pending == null) {
+                    TaskCompletionSource<bool> waiter;
+                    lock (sender.Lock) {
+                        if (sender.Closed) {
+                            throw new InvalidOperationException("Reliable endpoint is disposed");
+                        }
+                        pending = TryAdmitLocked(sender, message, length);
+                        if (pending != null) {
+                            break;
+                        }
+                        waiter = sender.WindowWaiter ??= new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    }
+                    if (ct.CanBeCanceled) {
+                        var cancelled = Task.Delay(Timeout.Infinite, ct);
+                        if (await Task.WhenAny(waiter.Task, cancelled).ConfigureAwait(false) == cancelled) {
+                            ct.ThrowIfCancellationRequested();
+                        }
+                    }
+                    else {
+                        await waiter.Task.ConfigureAwait(false);
+                    }
+                }
+            }
+            catch {
+                if (pending == null) {
+                    Pooled.Return(message); // never admitted: still ours
+                }
+                throw;
+            }
+            await TransmitFirst(sender, pending).ConfigureAwait(false);
+        }
+
+        /// <summary>Window check + bookkeeping for a new reliable packet. Caller holds the lock.</summary>
+        private static PendingPacket? TryAdmitLocked(SenderState sender, byte[] message, int length) {
+            bool rangeOpen = (ushort)(sender.NextSeq - sender.LowestUnacked) < WindowSize;
+            bool congestionOpen = sender.Congestion == null || sender.Pending.Count < sender.Congestion.AllowedInFlight;
+            if (!rangeOpen || !congestionOpen) {
+                return null;
+            }
+            ushort seq = sender.NextSeq++;
+            BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), seq);
+            long now = NetTime.NowMs;
+            var pending = sender.Spare.Count > 0 ? sender.Spare.Pop() : new PendingPacket();
+            pending.Buffer = message;
+            pending.Length = length;
+            pending.FirstSentAtMs = now;
+            pending.LastSentAtMs = now;
+            pending.Attempts = 0;
+            pending.InFlight = 1; // the first transmission is about to read it
+            pending.Released = false;
+            sender.Pending[seq] = pending;
+            return pending;
+        }
+
+        /// <summary>First transmission: a failure is only logged — the retransmit timer covers it.</summary>
+        private ValueTask TransmitFirst(SenderState sender, PendingPacket pending) {
+            Interlocked.Increment(ref _packetsSent);
+            ValueTask send;
+            try {
+                send = Transmit(sender, pending);
+            }
+            catch (Exception ex) {
+                _logger.Debug($"Reliable send failed (will retransmit): {ex.Message}");
+                return default;
+            }
+            return send.IsCompletedSuccessfully ? default : ObserveAsync(send);
+        }
+
+        private async ValueTask ObserveAsync(ValueTask send) {
+            try {
+                await send.ConfigureAwait(false);
             }
             catch (Exception ex) {
                 _logger.Debug($"Reliable send failed (will retransmit): {ex.Message}");
             }
         }
 
-        public async ValueTask SendSequencedAsync(byte channel, ReadOnlyMemory<byte> data) {
-            var sender = GetSender(channel);
-            if (data.Length > FragmentThreshold) {
-                throw new ArgumentException(
-                    $"UnreliableSequenced payload of {data.Length} bytes exceeds {FragmentThreshold} bytes. " +
-                    "Sequenced packets are not fragmented (a lost fragment would kill the whole packet); " +
-                    "use a Reliable/ReliableOrdered channel for large payloads.", nameof(data));
+        /// <summary>Sends a pending packet whose InFlight the caller already incremented.</summary>
+        private ValueTask Transmit(SenderState sender, PendingPacket pending) {
+            try {
+                return _sendAsync(new ReadOnlyMemory<byte>(pending.Buffer, 0, pending.Length));
             }
-
-            var message = BuildRelData(channel, flags: 0, seq: 0, data.Span, default);
-            lock (sender.Lock) {
-                BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), sender.NextSeq++);
+            finally {
+                lock (sender.Lock) {
+                    if (--pending.InFlight == 0 && pending.Released) {
+                        Recycle(sender, pending);
+                    }
+                }
             }
-            await _sendAsync(message).ConfigureAwait(false);
         }
 
-        private static byte[] BuildRelData(byte channel, byte flags, ushort seq, ReadOnlySpan<byte> payload, FragmentInfo fragment) {
+        /// <summary>The packet left the window (acked / disposed). Caller holds the lock.</summary>
+        private static void ReleaseLocked(SenderState sender, PendingPacket pending) {
+            if (pending.InFlight > 0) {
+                pending.Released = true; // a send is still reading it; Transmit recycles
+                return;
+            }
+            Recycle(sender, pending);
+        }
+
+        private static void Recycle(SenderState sender, PendingPacket pending) {
+            Pooled.Return(pending.Buffer);
+            pending.Buffer = Array.Empty<byte>();
+            pending.Released = false;
+            if (sender.Spare.Count < MaxSparePendingPackets) {
+                sender.Spare.Push(pending);
+            }
+        }
+
+        /// <summary>Builds [RelData][flags][channel][seq=0][fragment header?][payload] in a pooled buffer.</summary>
+        private static byte[] BuildRelData(byte channel, byte flags, ReadOnlySpan<byte> payload, FragmentInfo fragment, out int length) {
             bool fragmented = (flags & FlagFragment) != 0;
             int fragmentHeader = fragmented ? PacketFragmenter.HeaderSize : 0;
-            var message = new byte[RelDataHeaderSize + fragmentHeader + payload.Length];
+            length = RelDataHeaderSize + fragmentHeader + payload.Length;
+            var message = Pooled.Rent(length);
             message[0] = PeerProtocol.MsgRelData;
             message[1] = flags;
             message[2] = channel;
-            BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), seq);
+            message[3] = 0;
+            message[4] = 0;
             if (fragmented) {
                 PacketFragmenter.WriteFragmentHeader(message.AsSpan(RelDataHeaderSize), fragment.Id, fragment.Index, fragment.Total);
             }
@@ -269,6 +573,10 @@ namespace NetSync.Pipeline.Reliability {
                     }
                     break; // sequenced mode never acks
 
+                case ReliabilityMode.UnreliableFragmented:
+                    HandleUnreliableFragment(receiver, channel, flags, buffer, payloadOffset, payloadCount);
+                    break; // never acks
+
                 case ReliabilityMode.Reliable:
                     HandleUnordered(receiver, channel, flags, seq, buffer, payloadOffset, payloadCount);
                     break;
@@ -276,6 +584,35 @@ namespace NetSync.Pipeline.Reliability {
                 case ReliabilityMode.ReliableOrdered:
                     HandleOrdered(receiver, channel, flags, seq, buffer, payloadOffset, payloadCount);
                     break;
+            }
+        }
+
+        private void HandleUnreliableFragment(ReceiverState receiver, byte channel, byte flags, byte[] buffer, int offset, int count) {
+            if ((flags & FlagFragment) == 0 ||
+                !PacketFragmenter.TryParse(buffer.AsSpan(offset, count), out uint messageId, out uint index, out uint total, out var chunk)) {
+                return; // this mode is always fragment-framed
+            }
+            if (receiver.HasDeliveredMessage && MessageIdDistance(messageId, receiver.LastDeliveredMessageId) <= 0) {
+                return; // a newer message was already delivered: this one is stale, don't even buffer it
+            }
+            if (!receiver.Fragments!.TryAddFragmentPooled(messageId, index, total, chunk, out var complete, out int completeLength)) {
+                _logger.Warning("Unreliable-fragmented channel: remote violated fragment limits; closing");
+                SignalDead(DisconnectReason.Error);
+                return;
+            }
+            if (complete == null) {
+                return;
+            }
+            try {
+                if (receiver.HasDeliveredMessage && MessageIdDistance(messageId, receiver.LastDeliveredMessageId) <= 0) {
+                    return; // completed after a newer one: stale
+                }
+                receiver.LastDeliveredMessageId = messageId;
+                receiver.HasDeliveredMessage = true;
+                _deliver(channel, complete, 0, completeLength);
+            }
+            finally {
+                Pooled.Return(complete);
             }
         }
 
@@ -328,14 +665,18 @@ namespace NetSync.Pipeline.Reliability {
                 // Drain any consecutive packets buffered while this one was missing.
                 while (receiver.Held!.TryGetValue(receiver.Expected, out var held)) {
                     receiver.Held.Remove(receiver.Expected);
-                    DeliverPayload(receiver, channel, held.Flags, held.Payload, 0, held.Payload.Length);
+                    try {
+                        DeliverPayload(receiver, channel, held.Flags, held.Buffer, 0, held.Length);
+                    }
+                    finally {
+                        Pooled.Return(held.Buffer);
+                    }
                     receiver.Expected++;
                 }
             }
             else {
-                var payload = new byte[payloadCount];
-                Array.Copy(buffer, payloadOffset, payload, 0, payloadCount);
-                receiver.Held![seq] = new HeldPacket { Flags = flags, Payload = payload };
+                var copy = Pooled.Copy(new ReadOnlySpan<byte>(buffer, payloadOffset, payloadCount));
+                receiver.Held![seq] = new HeldPacket(flags, copy, payloadCount);
             }
             SendAck(channel, seq, receiver);
         }
@@ -343,30 +684,83 @@ namespace NetSync.Pipeline.Reliability {
         private void DeliverPayload(ReceiverState receiver, byte channel, byte flags, byte[] buffer, int offset, int count) {
             if ((flags & FlagFragment) != 0) {
                 if (receiver.Fragments == null ||
-                    !PacketFragmenter.TryUnwrap(buffer.AsSpan(offset, count), out uint fragId, out uint index, out uint total, out var chunk)) {
+                    !PacketFragmenter.TryParse(buffer.AsSpan(offset, count), out uint fragId, out uint index, out uint total, out var chunk)) {
                     return; // malformed fragment
                 }
-                var complete = receiver.Fragments.AddFragment(fragId, index, total, chunk);
+                if (!receiver.Fragments.TryAddFragmentPooled(fragId, index, total, chunk, out var complete, out int completeLength)) {
+                    _logger.Warning("Reliable channel: remote violated fragment limits (message too large?); closing");
+                    SignalDead(DisconnectReason.Error);
+                    return;
+                }
                 if (complete != null) {
-                    _deliver(channel, complete);
+                    try {
+                        _deliver(channel, complete, 0, completeLength);
+                    }
+                    finally {
+                        Pooled.Return(complete);
+                    }
                 }
                 return;
             }
 
-            var payload = new byte[count];
-            Array.Copy(buffer, offset, payload, 0, count);
-            _deliver(channel, payload);
+            _deliver(channel, buffer, offset, count); // zero-copy: valid during the call
         }
 
         // ---------------------------------------------------------------- acks
 
-        private void SendAck(byte channel, ushort anchorSeq, ReceiverState receiver) {
-            var ack = new byte[RelAckSize];
+        private void SendAck(byte channel, ushort seq, ReceiverState receiver) {
+            if (!DeferAcks) {
+                SendAckNow(channel, seq, receiver);
+                return;
+            }
+            if (!receiver.AckPending) {
+                receiver.AckPending = true;
+                receiver.AckAnchor = seq;
+                _ackChannels.Add(channel);
+                return;
+            }
+            // One ack covers its anchor and the 32 seqs below it: anchor on the newest seq,
+            // and send right away whatever that mask could not cover.
+            int distance = SeqDistance(seq, receiver.AckAnchor);
+            if (distance > 0) {
+                if (distance >= 32) {
+                    SendAckNow(channel, receiver.AckAnchor, receiver);
+                }
+                receiver.AckAnchor = seq;
+            }
+            else if (distance <= -32) {
+                SendAckNow(channel, seq, receiver);
+            }
+        }
+
+        /// <summary>Sends the acks deferred since the last call. Receive thread only.</summary>
+        public void FlushAcks() {
+            var channels = _ackChannels;
+            for (int i = 0; i < channels.Count; i++) {
+                var receiver = _receivers[channels[i]];
+                if (receiver.AckPending) {
+                    receiver.AckPending = false;
+                    SendAckNow(channels[i], receiver.AckAnchor, receiver);
+                }
+            }
+            channels.Clear();
+        }
+
+        private void SendAckNow(byte channel, ushort anchorSeq, ReceiverState receiver) {
+            var ack = Pooled.Rent(RelAckSize);
             ack[0] = PeerProtocol.MsgRelAck;
             ack[1] = channel;
             BinaryPrimitives.WriteUInt16BigEndian(ack.AsSpan(2, 2), anchorSeq);
             BinaryPrimitives.WriteUInt32BigEndian(ack.AsSpan(4, 4), BuildAckMask(receiver, anchorSeq));
-            FireAndForget(_sendAsync(ack));
+            try {
+                _sendAsync(new ReadOnlyMemory<byte>(ack, 0, RelAckSize)).Forget(_logger);
+            }
+            catch (Exception ex) {
+                _logger.Debug($"Ack send failed: {ex.Message}");
+            }
+            finally {
+                Pooled.Return(ack);
+            }
         }
 
         /// <summary>Bit i set = seq (anchor - 1 - i) has been received.</summary>
@@ -398,101 +792,173 @@ namespace NetSync.Pipeline.Reliability {
             byte channel = buffer[offset + 1];
             ushort anchorSeq = BinaryPrimitives.ReadUInt16BigEndian(buffer.AsSpan(offset + 2, 2));
             uint mask = BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(offset + 4, 4));
-            if (!_senders.TryGetValue(channel, out var sender)) {
+            if (!_senders.TryGetValue(channel, out var sender) || !sender.IsReliable) {
                 return;
             }
 
+            long now = NetTime.NowMs;
             TaskCompletionSource<bool>? waiter = null;
+            var fastResend = _fastResend;
+            fastResend.Clear();
             lock (sender.Lock) {
                 int removed = 0;
-                if (sender.Pending.Remove(anchorSeq)) {
+                if (sender.Pending.TryGetValue(anchorSeq, out var anchorPacket)) {
+                    sender.Pending.Remove(anchorSeq);
                     removed++;
+                    if (anchorPacket.Attempts == 0) {
+                        // Karn's rule: only never-retransmitted packets give an unambiguous RTT.
+                        lock (_rttLock) {
+                            _rtt.AddSample(now - anchorPacket.FirstSentAtMs, now);
+                        }
+                    }
+                    ReleaseLocked(sender, anchorPacket);
                 }
                 for (int i = 0; i < 32; i++) {
-                    if ((mask & (1u << i)) != 0 && sender.Pending.Remove((ushort)(anchorSeq - 1 - i))) {
+                    var acked = (ushort)(anchorSeq - 1 - i);
+                    if ((mask & (1u << i)) != 0 && sender.Pending.TryGetValue(acked, out var ackedPacket)) {
+                        sender.Pending.Remove(acked);
+                        ReleaseLocked(sender, ackedPacket);
                         removed++;
                     }
                 }
-                if (removed > 0 && AdvanceLowestUnacked(sender)) {
-                    waiter = sender.WindowWaiter;
-                    sender.WindowWaiter = null;
+                if (removed == 0) {
+                    return;
                 }
+
+                AdvanceLowestUnacked(sender);
+                if (sender.Congestion != null) {
+                    lock (_rttLock) {
+                        sender.Congestion.OnAcked(removed, _rtt, now);
+                    }
+                }
+
+                // Fast retransmit: packets this far behind an acked one are almost surely lost.
+                bool lossDetected = false;
+                for (ushort seq = sender.LowestUnacked; SeqDistance(anchorSeq, seq) >= FastRetransmitThreshold; seq++) {
+                    if (sender.Pending.TryGetValue(seq, out var lost) && lost.Attempts == 0) {
+                        lost.Attempts = 1;
+                        lost.LastSentAtMs = now;
+                        lost.InFlight++;
+                        fastResend.Add(lost);
+                        lossDetected = true;
+                    }
+                }
+                if (lossDetected && sender.Congestion != null) {
+                    lock (_rttLock) {
+                        sender.Congestion.OnLoss(_rtt, now);
+                    }
+                }
+
+                // Any removal may free in-flight capacity: wake blocked senders.
+                waiter = sender.WindowWaiter;
+                sender.WindowWaiter = null;
             }
-            waiter?.TrySetResult(true); // wake blocked senders: the window slid forward
+            waiter?.TrySetResult(true);
+
+            if (fastResend.Count > 0) {
+                Interlocked.Add(ref _fastRetransmissions, fastResend.Count);
+                foreach (var lost in fastResend) {
+                    try {
+                        Transmit(sender, lost).Forget(_logger);
+                    }
+                    catch (Exception ex) {
+                        _logger.Debug($"Fast retransmit failed: {ex.Message}");
+                    }
+                }
+                fastResend.Clear();
+            }
         }
 
-        /// <summary>Recomputes LowestUnacked after acks. Returns true when it advanced. Caller holds the lock.</summary>
-        private static bool AdvanceLowestUnacked(SenderState sender) {
+        /// <summary>Recomputes LowestUnacked after acks. Caller holds the lock.</summary>
+        private static void AdvanceLowestUnacked(SenderState sender) {
             ushort previous = sender.LowestUnacked;
             if (sender.Pending.Count == 0) {
                 sender.LowestUnacked = sender.NextSeq;
+                return;
             }
-            else {
-                int minDistance = int.MaxValue;
-                foreach (var seq in sender.Pending.Keys) {
-                    int distance = (ushort)(seq - previous);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                    }
+            int minDistance = int.MaxValue;
+            foreach (var seq in sender.Pending.Keys) {
+                int distance = (ushort)(seq - previous);
+                if (distance < minDistance) {
+                    minDistance = distance;
                 }
-                sender.LowestUnacked = (ushort)(previous + minDistance);
             }
-            return sender.LowestUnacked != previous;
+            sender.LowestUnacked = (ushort)(previous + minDistance);
         }
 
         // ---------------------------------------------------------- retransmit
 
-        private async Task RetransmitLoopAsync(CancellationToken ct) {
-            var due = new List<byte[]>();
+        /// <summary>
+        /// One timer pass (called by <see cref="ReliabilityClock"/>): resends what timed out,
+        /// declares the link dead after too many attempts. Never blocks — sends are handed to
+        /// the link, which consumes them synchronously.
+        /// </summary>
+        internal void Tick(long now) {
+            if (Volatile.Read(ref _disposed) == 1 || Volatile.Read(ref _deadSignaled) == 1 || now - _lastScanMs < _retransmitScanMs) {
+                return;
+            }
+            _lastScanMs = now;
             try {
-                while (!ct.IsCancellationRequested) {
-                    await Task.Delay(_retransmitScanMs, ct).ConfigureAwait(false);
+                int ping = _getPingMs();
+                int baseRto;
+                lock (_rttLock) {
+                    baseRto = _rtt.RetransmitTimeoutMs(_rtoFloorMs, _rtoCeilingMs, fallbackMs: ping <= 0 ? 200 : ping * 2 + 30);
+                }
 
-                    long now = NetTime.NowMs;
-                    int ping = _getPingMs();
-                    int baseRto = Math.Clamp(ping <= 0 ? 200 : ping * 2 + 30, _rtoFloorMs, _rtoCeilingMs);
-
-                    foreach (var sender in _senders.Values) {
-                        due.Clear();
-                        bool dead = false;
-                        lock (sender.Lock) {
-                            foreach (var pending in sender.Pending.Values) {
-                                int rto = Math.Min(baseRto << Math.Min(pending.Attempts, 4), _rtoCeilingMs);
-                                if (now - pending.LastSentAtMs < rto) {
-                                    continue;
-                                }
-                                if (pending.Attempts >= _maxRetransmits) {
-                                    dead = true;
-                                    break;
-                                }
-                                pending.Attempts++;
-                                pending.LastSentAtMs = now;
-                                due.Add(pending.Message);
+                var due = _due;
+                foreach (var sender in _senders.Values) {
+                    if (!sender.IsReliable) {
+                        continue;
+                    }
+                    due.Clear();
+                    bool dead = false;
+                    lock (sender.Lock) {
+                        foreach (var pending in sender.Pending.Values) {
+                            int rto = Math.Min(baseRto << Math.Min(pending.Attempts, 4), _rtoCeilingMs);
+                            if (now - pending.LastSentAtMs < rto) {
+                                continue;
                             }
-                        }
-
-                        if (dead) {
-                            _logger.Warning($"Reliable link dead: packet unacked after {_maxRetransmits} retransmits");
-                            SignalDead();
-                            return;
-                        }
-                        foreach (var message in due) {
-                            try {
-                                await _sendAsync(message).ConfigureAwait(false);
+                            if (pending.Attempts >= _maxRetransmits) {
+                                dead = true;
+                                break;
                             }
-                            catch (Exception ex) {
-                                _logger.Debug($"Retransmit failed: {ex.Message}");
+                            pending.Attempts++;
+                            pending.LastSentAtMs = now;
+                            pending.InFlight++;
+                            due.Add(pending);
+                        }
+                        if (due.Count > 0 && sender.Congestion != null) {
+                            lock (_rttLock) {
+                                sender.Congestion.OnLoss(_rtt, now);
                             }
                         }
                     }
+
+                    Interlocked.Add(ref _retransmissions, due.Count);
+                    foreach (var pending in due) {
+                        try {
+                            Transmit(sender, pending).Forget(_logger);
+                        }
+                        catch (Exception ex) {
+                            _logger.Debug($"Retransmit failed: {ex.Message}");
+                        }
+                    }
+                    due.Clear();
+                    if (dead) {
+                        _logger.Warning($"Reliable link dead: packet unacked after {_maxRetransmits} retransmits");
+                        SignalDead(DisconnectReason.Timeout);
+                        return;
+                    }
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (Exception ex) {
+                _logger.Error($"Reliability timer: {ex}"); // never let one endpoint stop the shared clock
+            }
         }
 
-        private void SignalDead() {
+        private void SignalDead(DisconnectReason reason) {
             if (Interlocked.Exchange(ref _deadSignaled, 1) == 0) {
-                _onDead(DisconnectReason.Timeout);
+                _onDead(reason);
             }
         }
 
@@ -507,32 +973,21 @@ namespace NetSync.Pipeline.Reliability {
         /// <summary>Wrap-aware distance: positive when <paramref name="a"/> is newer than <paramref name="b"/>.</summary>
         private static int SeqDistance(ushort a, ushort b) => (short)(ushort)(a - b);
 
-        private void FireAndForget(ValueTask task) {
-            if (task.IsCompletedSuccessfully) {
-                return;
-            }
-            _ = Observe(task);
-
-            async Task Observe(ValueTask t) {
-                try {
-                    await t.ConfigureAwait(false);
-                }
-                catch (Exception ex) {
-                    _logger.Debug($"Reliability send failed: {ex.Message}");
-                }
-            }
-        }
+        /// <summary>Wrap-aware distance for 32-bit message ids.</summary>
+        private static int MessageIdDistance(uint a, uint b) => (int)(a - b);
 
         public void Dispose() {
             if (Interlocked.Exchange(ref _disposed, 1) == 1) {
                 return;
             }
-            _cts?.Cancel();
-            _cts?.Dispose();
+            ReliabilityClock.Unregister(this);
             foreach (var sender in _senders.Values) {
                 TaskCompletionSource<bool>? waiter;
                 lock (sender.Lock) {
                     sender.Closed = true;
+                    foreach (var pending in sender.Pending.Values) {
+                        ReleaseLocked(sender, pending);
+                    }
                     sender.Pending.Clear();
                     waiter = sender.WindowWaiter;
                     sender.WindowWaiter = null;

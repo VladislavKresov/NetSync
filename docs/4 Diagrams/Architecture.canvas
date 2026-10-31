@@ -1,0 +1,1258 @@
+{
+ "nodes": [
+  {
+   "id": "f__root_",
+   "type": "group",
+   "x": 0,
+   "y": 0,
+   "width": 278,
+   "height": 138,
+   "label": "(root) (API)",
+   "color": "5"
+  },
+  {
+   "id": "m_NetConfig",
+   "type": "file",
+   "file": "Code/Root/NetConfig.md",
+   "x": 24,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Peers",
+   "type": "group",
+   "x": 358,
+   "y": 0,
+   "width": 524,
+   "height": 402,
+   "label": "Peers (API)",
+   "color": "5"
+  },
+  {
+   "id": "m_ChannelTransform",
+   "type": "file",
+   "file": "Code/Peers/ChannelTransform.md",
+   "x": 382,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ClockSync",
+   "type": "file",
+   "file": "Code/Peers/ClockSync.md",
+   "x": 628,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ConnectionApproval",
+   "type": "file",
+   "file": "Code/Peers/ConnectionApproval.md",
+   "x": 382,
+   "y": 106,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_EventDispatcher",
+   "type": "file",
+   "file": "Code/Peers/EventDispatcher.md",
+   "x": 628,
+   "y": 106,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetClient",
+   "type": "file",
+   "file": "Code/Peers/NetClient.md",
+   "x": 382,
+   "y": 172,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetConnection",
+   "type": "file",
+   "file": "Code/Peers/NetConnection.md",
+   "x": 628,
+   "y": 172,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetDataHandlers",
+   "type": "file",
+   "file": "Code/Peers/NetDataHandlers.md",
+   "x": 382,
+   "y": 238,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetListener",
+   "type": "file",
+   "file": "Code/Peers/NetListener.md",
+   "x": 628,
+   "y": 238,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetServer",
+   "type": "file",
+   "file": "Code/Peers/NetServer.md",
+   "x": 382,
+   "y": 304,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_PeerProtocol",
+   "type": "file",
+   "file": "Code/Peers/PeerProtocol.md",
+   "x": 628,
+   "y": 304,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Messaging",
+   "type": "group",
+   "x": 962,
+   "y": 0,
+   "width": 278,
+   "height": 138,
+   "label": "Messaging (API)",
+   "color": "5"
+  },
+  {
+   "id": "m_NetMessages",
+   "type": "file",
+   "file": "Code/Messaging/NetMessages.md",
+   "x": 986,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Streams",
+   "type": "group",
+   "x": 1320,
+   "y": 0,
+   "width": 278,
+   "height": 138,
+   "label": "Streams (API)",
+   "color": "5"
+  },
+  {
+   "id": "m_NetStreams",
+   "type": "file",
+   "file": "Code/Streams/NetStreams.md",
+   "x": 1344,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Discovery",
+   "type": "group",
+   "x": 1678,
+   "y": 0,
+   "width": 278,
+   "height": 336,
+   "label": "Discovery (API)",
+   "color": "5"
+  },
+  {
+   "id": "m_DiscoveryMessage",
+   "type": "file",
+   "file": "Code/Discovery/DiscoveryMessage.md",
+   "x": 1702,
+   "y": 40,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_LanServerBroadcaster",
+   "type": "file",
+   "file": "Code/Discovery/LanServerBroadcaster.md",
+   "x": 1702,
+   "y": 106,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_LanServerListener",
+   "type": "file",
+   "file": "Code/Discovery/LanServerListener.md",
+   "x": 1702,
+   "y": 172,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetQuery",
+   "type": "file",
+   "file": "Code/Discovery/NetQuery.md",
+   "x": 1702,
+   "y": 238,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Pipeline_Reliability",
+   "type": "group",
+   "x": 0,
+   "y": 522,
+   "width": 278,
+   "height": 336,
+   "label": "Pipeline/Reliability (Session)",
+   "color": "4"
+  },
+  {
+   "id": "m_CongestionControl",
+   "type": "file",
+   "file": "Code/Pipeline/Reliability/CongestionControl.md",
+   "x": 24,
+   "y": 562,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ReliabilityClock",
+   "type": "file",
+   "file": "Code/Pipeline/Reliability/ReliabilityClock.md",
+   "x": 24,
+   "y": 628,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ReliabilityMode",
+   "type": "file",
+   "file": "Code/Pipeline/Reliability/ReliabilityMode.md",
+   "x": 24,
+   "y": 694,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ReliableEndpoint",
+   "type": "file",
+   "file": "Code/Pipeline/Reliability/ReliableEndpoint.md",
+   "x": 24,
+   "y": 760,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Pipeline_Security",
+   "type": "group",
+   "x": 358,
+   "y": 522,
+   "width": 524,
+   "height": 270,
+   "label": "Pipeline/Security (Session)",
+   "color": "4"
+  },
+  {
+   "id": "m_CipherSuite",
+   "type": "file",
+   "file": "Code/Pipeline/Security/CipherSuite.md",
+   "x": 382,
+   "y": 562,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ConnectionCrypto",
+   "type": "file",
+   "file": "Code/Pipeline/Security/ConnectionCrypto.md",
+   "x": 628,
+   "y": 562,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_EcdhKeyExchange",
+   "type": "file",
+   "file": "Code/Pipeline/Security/EcdhKeyExchange.md",
+   "x": 382,
+   "y": 628,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_LinkSecurity",
+   "type": "file",
+   "file": "Code/Pipeline/Security/LinkSecurity.md",
+   "x": 628,
+   "y": 628,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetIdentity",
+   "type": "file",
+   "file": "Code/Pipeline/Security/NetIdentity.md",
+   "x": 382,
+   "y": 694,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Pipeline_Compression",
+   "type": "group",
+   "x": 962,
+   "y": 522,
+   "width": 278,
+   "height": 138,
+   "label": "Pipeline/Compression (Session)",
+   "color": "4"
+  },
+  {
+   "id": "m_Compressor",
+   "type": "file",
+   "file": "Code/Pipeline/Compression/Compressor.md",
+   "x": 986,
+   "y": 562,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Transports",
+   "type": "group",
+   "x": 0,
+   "y": 978,
+   "width": 770,
+   "height": 402,
+   "label": "Transports (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_BulkSender",
+   "type": "file",
+   "file": "Code/Transports/BulkSender.md",
+   "x": 24,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_DisconnectReason",
+   "type": "file",
+   "file": "Code/Transports/DisconnectReason.md",
+   "x": 270,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_DualStack",
+   "type": "file",
+   "file": "Code/Transports/DualStack.md",
+   "x": 516,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_IPrioritizedTransport",
+   "type": "file",
+   "file": "Code/Transports/IPrioritizedTransport.md",
+   "x": 24,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_IServerTransport",
+   "type": "file",
+   "file": "Code/Transports/IServerTransport.md",
+   "x": 270,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ITransport",
+   "type": "file",
+   "file": "Code/Transports/ITransport.md",
+   "x": 516,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ITransportFactory",
+   "type": "file",
+   "file": "Code/Transports/ITransportFactory.md",
+   "x": 24,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_MessageLink",
+   "type": "file",
+   "file": "Code/Transports/MessageLink.md",
+   "x": 270,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_PacketProtocol",
+   "type": "file",
+   "file": "Code/Transports/PacketProtocol.md",
+   "x": 516,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_ReceiveBuffer",
+   "type": "file",
+   "file": "Code/Transports/ReceiveBuffer.md",
+   "x": 24,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TcpAcceptLoop",
+   "type": "file",
+   "file": "Code/Transports/TcpAcceptLoop.md",
+   "x": 270,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TcpConnect",
+   "type": "file",
+   "file": "Code/Transports/TcpConnect.md",
+   "x": 516,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TransportCapabilities",
+   "type": "file",
+   "file": "Code/Transports/TransportCapabilities.md",
+   "x": 24,
+   "y": 1282,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TransportPeer",
+   "type": "file",
+   "file": "Code/Transports/TransportPeer.md",
+   "x": 270,
+   "y": 1282,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TransportSettings",
+   "type": "file",
+   "file": "Code/Transports/TransportSettings.md",
+   "x": 516,
+   "y": 1282,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Transports_Tcp",
+   "type": "group",
+   "x": 850,
+   "y": 978,
+   "width": 278,
+   "height": 270,
+   "label": "Transports/Tcp (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_TcpFrameReader",
+   "type": "file",
+   "file": "Code/Transports/Tcp/TcpFrameReader.md",
+   "x": 874,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TcpServerTransport",
+   "type": "file",
+   "file": "Code/Transports/Tcp/TcpServerTransport.md",
+   "x": 874,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TcpTransport",
+   "type": "file",
+   "file": "Code/Transports/Tcp/TcpTransport.md",
+   "x": 874,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Transports_Udp",
+   "type": "group",
+   "x": 1208,
+   "y": 978,
+   "width": 524,
+   "height": 270,
+   "label": "Transports/Udp (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_DatagramBatcher",
+   "type": "file",
+   "file": "Code/Transports/Udp/DatagramBatcher.md",
+   "x": 1232,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_EndPointCache",
+   "type": "file",
+   "file": "Code/Transports/Udp/EndPointCache.md",
+   "x": 1478,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_PathMtuProbe",
+   "type": "file",
+   "file": "Code/Transports/Udp/PathMtuProbe.md",
+   "x": 1232,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_UdpServerTransport",
+   "type": "file",
+   "file": "Code/Transports/Udp/UdpServerTransport.md",
+   "x": 1478,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_UdpSockets",
+   "type": "file",
+   "file": "Code/Transports/Udp/UdpSockets.md",
+   "x": 1232,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_UdpTransport",
+   "type": "file",
+   "file": "Code/Transports/Udp/UdpTransport.md",
+   "x": 1478,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Transports_WebSockets",
+   "type": "group",
+   "x": 1812,
+   "y": 978,
+   "width": 278,
+   "height": 336,
+   "label": "Transports/WebSockets (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_WebSocketClientTransport",
+   "type": "file",
+   "file": "Code/Transports/WebSockets/WebSocketClientTransport.md",
+   "x": 1836,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_WebSocketHandshake",
+   "type": "file",
+   "file": "Code/Transports/WebSockets/WebSocketHandshake.md",
+   "x": 1836,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_WebSocketServerTransport",
+   "type": "file",
+   "file": "Code/Transports/WebSockets/WebSocketServerTransport.md",
+   "x": 1836,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_WebSocketTransportFactory",
+   "type": "file",
+   "file": "Code/Transports/WebSockets/WebSocketTransportFactory.md",
+   "x": 1836,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Transports_Simulation",
+   "type": "group",
+   "x": 2170,
+   "y": 978,
+   "width": 278,
+   "height": 204,
+   "label": "Transports/Simulation (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_NetworkSimulation",
+   "type": "file",
+   "file": "Code/Transports/Simulation/NetworkSimulation.md",
+   "x": 2194,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_SimulatedTransportFactory",
+   "type": "file",
+   "file": "Code/Transports/Simulation/SimulatedTransportFactory.md",
+   "x": 2194,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Relay",
+   "type": "group",
+   "x": 2528,
+   "y": 978,
+   "width": 524,
+   "height": 336,
+   "label": "Relay (Transports)",
+   "color": "6"
+  },
+  {
+   "id": "m_DatagramSocket",
+   "type": "file",
+   "file": "Code/Relay/DatagramSocket.md",
+   "x": 2552,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_FramedConnection",
+   "type": "file",
+   "file": "Code/Relay/FramedConnection.md",
+   "x": 2798,
+   "y": 1018,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetRelayServer",
+   "type": "file",
+   "file": "Code/Relay/NetRelayServer.md",
+   "x": 2552,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_RelayDatagramTransports",
+   "type": "file",
+   "file": "Code/Relay/RelayDatagramTransports.md",
+   "x": 2798,
+   "y": 1084,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_RelayHostSession",
+   "type": "file",
+   "file": "Code/Relay/RelayHostSession.md",
+   "x": 2552,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_RelayProtocol",
+   "type": "file",
+   "file": "Code/Relay/RelayProtocol.md",
+   "x": 2798,
+   "y": 1150,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_RelayRoom",
+   "type": "file",
+   "file": "Code/Relay/RelayRoom.md",
+   "x": 2552,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_RelayStreamTransports",
+   "type": "file",
+   "file": "Code/Relay/RelayStreamTransports.md",
+   "x": 2798,
+   "y": 1216,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Sending",
+   "type": "group",
+   "x": 0,
+   "y": 1500,
+   "width": 278,
+   "height": 204,
+   "label": "Sending (Infrastructure)",
+   "color": "3"
+  },
+  {
+   "id": "m_SendPriority",
+   "type": "file",
+   "file": "Code/Sending/SendPriority.md",
+   "x": 24,
+   "y": 1540,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_SendQueue",
+   "type": "file",
+   "file": "Code/Sending/SendQueue.md",
+   "x": 24,
+   "y": 1606,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Pipeline_Fragmentation",
+   "type": "group",
+   "x": 358,
+   "y": 1500,
+   "width": 278,
+   "height": 204,
+   "label": "Pipeline/Fragmentation (Infrastructure)",
+   "color": "3"
+  },
+  {
+   "id": "m_FragmentBuffer",
+   "type": "file",
+   "file": "Code/Pipeline/Fragmentation/FragmentBuffer.md",
+   "x": 382,
+   "y": 1540,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_PacketFragmenter",
+   "type": "file",
+   "file": "Code/Pipeline/Fragmentation/PacketFragmenter.md",
+   "x": 382,
+   "y": 1606,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Serialization",
+   "type": "group",
+   "x": 0,
+   "y": 1824,
+   "width": 278,
+   "height": 204,
+   "label": "Serialization (Foundation)",
+   "color": "2"
+  },
+  {
+   "id": "m_NetReader",
+   "type": "file",
+   "file": "Code/Serialization/NetReader.md",
+   "x": 24,
+   "y": 1864,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetWriter",
+   "type": "file",
+   "file": "Code/Serialization/NetWriter.md",
+   "x": 24,
+   "y": 1930,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Diagnostics",
+   "type": "group",
+   "x": 358,
+   "y": 1824,
+   "width": 278,
+   "height": 270,
+   "label": "Diagnostics (Foundation)",
+   "color": "2"
+  },
+  {
+   "id": "m_INetLogger",
+   "type": "file",
+   "file": "Code/Diagnostics/INetLogger.md",
+   "x": 382,
+   "y": 1864,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetMetrics",
+   "type": "file",
+   "file": "Code/Diagnostics/NetMetrics.md",
+   "x": 382,
+   "y": 1930,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetStatistics",
+   "type": "file",
+   "file": "Code/Diagnostics/NetStatistics.md",
+   "x": 382,
+   "y": 1996,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "f_Internal",
+   "type": "group",
+   "x": 716,
+   "y": 1824,
+   "width": 278,
+   "height": 336,
+   "label": "Internal (Foundation)",
+   "color": "2"
+  },
+  {
+   "id": "m_AsyncSignal",
+   "type": "file",
+   "file": "Code/Internal/AsyncSignal.md",
+   "x": 740,
+   "y": 1864,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_NetTime",
+   "type": "file",
+   "file": "Code/Internal/NetTime.md",
+   "x": 740,
+   "y": 1930,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_Pooled",
+   "type": "file",
+   "file": "Code/Internal/Pooled.md",
+   "x": 740,
+   "y": 1996,
+   "width": 230,
+   "height": 50
+  },
+  {
+   "id": "m_TaskExtensions",
+   "type": "file",
+   "file": "Code/Internal/TaskExtensions.md",
+   "x": 740,
+   "y": 2062,
+   "width": 230,
+   "height": 50
+  }
+ ],
+ "edges": [
+  {
+   "id": "e_f__root__f_Pipeline_Security",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f__root__f_Transports",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f__root__f_Transports_Simulation",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Simulation",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f__root__f_Pipeline_Reliability",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Reliability",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Discovery_f_Transports",
+   "fromNode": "f_Discovery",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Internal_f_Diagnostics",
+   "fromNode": "f_Internal",
+   "fromSide": "bottom",
+   "toNode": "f_Diagnostics",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Messaging_f_Peers",
+   "fromNode": "f_Messaging",
+   "fromSide": "bottom",
+   "toNode": "f_Peers",
+   "toSide": "top",
+   "label": "3"
+  },
+  {
+   "id": "e_f_Messaging_f_Serialization",
+   "fromNode": "f_Messaging",
+   "fromSide": "bottom",
+   "toNode": "f_Serialization",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Peers_f__root_",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "8"
+  },
+  {
+   "id": "e_f_Peers_f_Pipeline_Security",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "14"
+  },
+  {
+   "id": "e_f_Peers_f_Pipeline_Compression",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Compression",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Peers_f_Transports_Udp",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Udp",
+   "toSide": "top",
+   "label": "3"
+  },
+  {
+   "id": "e_f_Peers_f_Transports",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "14"
+  },
+  {
+   "id": "e_f_Peers_f_Pipeline_Reliability",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Reliability",
+   "toSide": "top",
+   "label": "5"
+  },
+  {
+   "id": "e_f_Peers_f_Sending",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Peers_f_Transports_Simulation",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Simulation",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Fragmentation_f__root_",
+   "fromNode": "f_Pipeline_Fragmentation",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Fragmentation_f_Transports",
+   "fromNode": "f_Pipeline_Fragmentation",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Reliability_f_Pipeline_Security",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Reliability_f_Transports",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Reliability_f_Pipeline_Fragmentation",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Fragmentation",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Pipeline_Reliability_f__root_",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Reliability_f_Peers",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f_Peers",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Security_f__root_",
+   "fromNode": "f_Pipeline_Security",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Pipeline_Security_f_Peers",
+   "fromNode": "f_Pipeline_Security",
+   "fromSide": "bottom",
+   "toNode": "f_Peers",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Relay_f_Transports_Udp",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Udp",
+   "toSide": "top",
+   "label": "6"
+  },
+  {
+   "id": "e_f_Relay_f_Sending",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "5"
+  },
+  {
+   "id": "e_f_Relay_f_Transports_Tcp",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Tcp",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Relay_f_Transports",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "27"
+  },
+  {
+   "id": "e_f_Relay_f_Pipeline_Security",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Streams_f_Peers",
+   "fromNode": "f_Streams",
+   "fromSide": "bottom",
+   "toNode": "f_Peers",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Streams_f_Serialization",
+   "fromNode": "f_Streams",
+   "fromSide": "bottom",
+   "toNode": "f_Serialization",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Transports_f_Sending",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "5"
+  },
+  {
+   "id": "e_f_Transports_f_Pipeline_Fragmentation",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Fragmentation",
+   "toSide": "top",
+   "label": "4"
+  },
+  {
+   "id": "e_f_Transports_f_Pipeline_Reliability",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Reliability",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Transports_f_Transports_Udp",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Udp",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f_Transports_f_Transports_Tcp",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Tcp",
+   "toSide": "top",
+   "label": "3"
+  },
+  {
+   "id": "e_f_Transports_f__root_",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f_Transports_Simulation_f_Transports",
+   "fromNode": "f_Transports_Simulation",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "6"
+  },
+  {
+   "id": "e_f_Transports_Tcp_f_Transports",
+   "fromNode": "f_Transports_Tcp",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "20"
+  },
+  {
+   "id": "e_f_Transports_Tcp_f_Sending",
+   "fromNode": "f_Transports_Tcp",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "4"
+  },
+  {
+   "id": "e_f_Transports_Tcp_f_Pipeline_Fragmentation",
+   "fromNode": "f_Transports_Tcp",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Fragmentation",
+   "toSide": "top",
+   "label": "4"
+  },
+  {
+   "id": "e_f_Transports_Udp_f_Transports",
+   "fromNode": "f_Transports_Udp",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "14"
+  },
+  {
+   "id": "e_f_Transports_WebSockets_f_Transports",
+   "fromNode": "f_Transports_WebSockets",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "23"
+  },
+  {
+   "id": "e_f_Transports_WebSockets_f_Sending",
+   "fromNode": "f_Transports_WebSockets",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "2"
+  }
+ ]
+}

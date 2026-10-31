@@ -84,12 +84,18 @@ namespace NetSync.Tests {
             Assert.Throws<EndOfStreamException>(() => reader.ReadInt64());
         }
 
-        [Fact]
-        public void Malicious_Length_Prefix_Throws() {
+        [Theory]
+        [InlineData(uint.MaxValue)]       // doesn't even fit an int
+        [InlineData(int.MaxValue - 2u)]   // position + count would overflow
+        [InlineData(100u)]                // simply longer than the payload
+        public void Malicious_Length_Prefix_Is_Malformed_Input(uint claimed) {
+            // Callers catch EndOfStreamException as "malformed": nothing else may escape.
             var writer = new NetWriter();
-            writer.WriteVarUInt(uint.MaxValue); // claims a 4 GB string follows
-            var reader = new NetReader(writer.WrittenMemory);
-            Assert.ThrowsAny<Exception>(() => reader.ReadString()); // checked overflow or EOS
+            writer.WriteVarUInt(claimed);
+            writer.WriteInt32(7);
+            Assert.Throws<EndOfStreamException>(() => new NetReader(writer.WrittenMemory).ReadString());
+            Assert.Throws<EndOfStreamException>(() => new NetReader(writer.WrittenMemory).ReadBytes());
+            Assert.Throws<EndOfStreamException>(() => new NetReader(writer.WrittenMemory).ReadBytesMemory());
         }
 
         [Fact]

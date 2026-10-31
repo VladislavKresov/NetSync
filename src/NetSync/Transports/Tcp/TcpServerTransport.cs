@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
@@ -9,15 +8,37 @@ using System.Threading.Tasks;
 using NetSync.Diagnostics;
 using NetSync.Internal;
 using NetSync.Pipeline.Fragmentation;
+using NetSync.Sending;
 
 namespace NetSync.Transports.Tcp {
     /// <summary>
     /// Server-side TCP transport: accepts clients, frames packets, pings peers and
-    /// drops the ones that stop answering. Send/receive paths use pooled buffers.
+    /// drops the ones that stop answering.
+    ///
+    /// Every peer gets its own priority <see cref="SendQueue"/>: sends never block the
+    /// caller on a slow client, keepalive jumps ahead of bulk data, and a client that
+    /// stops reading is detected by the write watchdog instead of hanging the server.
     /// </summary>
-    public sealed class TcpServerTransport : IServerTransport {
-        private readonly int _pingIntervalMs;
-        private readonly int _pingTimeoutMs;
+    public sealed class TcpServerTransport : IServerTransport, IPrioritizedServerTransport, IPooledReceiveServerTransport, ITrustAwareServerTransport {
+        private sealed class PeerState {
+            public readonly TcpClient Client;
+            public readonly NetworkStream Stream;
+            public readonly SendQueue SendQueue;
+            public readonly FragmentBuffer FragmentBuffer;
+
+            public PeerState(TcpClient client, TransportSettings settings) {
+                Client = client;
+                Stream = client.GetStream();
+                SendQueue = new SendQueue(WriteRawAsync, TcpTransport.CoalesceBytes, settings.Logger);
+                FragmentBuffer = TcpTransport.CreateFragmentBuffer(settings.MaxMessageSize);
+            }
+
+            private ValueTask WriteRawAsync(byte[] buffer, int length, CancellationToken ct) {
+                return Stream.WriteAsync(buffer.AsMemory(0, length), ct);
+            }
+        }
+
+        private readonly TransportSettings _settings;
         private readonly INetLogger _logger;
         private readonly ConcurrentDictionary<long, TransportPeer> _peers = new ConcurrentDictionary<long, TransportPeer>();
         private TcpListener? _listener;
@@ -32,12 +53,32 @@ namespace NetSync.Transports.Tcp {
         public event Action<TransportPeer, byte[]>? DataReceived;
 
         /// <summary>Zero-copy delivery hook, see <see cref="TcpTransport.PooledReceive"/>.</summary>
-        internal Action<TransportPeer, byte[], int, int>? PooledReceive;
+        internal Action<TransportPeer, byte[], int, int>? PooledReceive { get; set; }
 
-        public TcpServerTransport(int pingIntervalMs = 1000, int pingTimeoutMs = 5000, INetLogger? logger = null) {
-            _pingIntervalMs = pingIntervalMs;
-            _pingTimeoutMs = pingTimeoutMs;
-            _logger = logger ?? NullNetLogger.Instance;
+        Action<TransportPeer, byte[], int, int>? IPooledReceiveServerTransport.PooledReceive {
+            get => PooledReceive;
+            set => PooledReceive = value;
+        }
+
+        bool ITrustAwareServerTransport.RequireTrust {
+            get => RequireTrust;
+            set => RequireTrust = value;
+        }
+
+        void ITrustAwareServerTransport.MarkTrusted(TransportPeer peer) => peer.MarkTrusted();
+
+        /// <summary>
+        /// When set (by NetServer), peers that have not completed the handshake may only
+        /// send frames up to <see cref="PacketProtocol.MaxUntrustedFrameBody"/> bytes.
+        /// </summary>
+        internal bool RequireTrust { get; set; }
+
+        public TcpServerTransport(int pingIntervalMs = 1000, int pingTimeoutMs = 5000, INetLogger? logger = null)
+            : this(TransportSettings.From(pingIntervalMs, pingTimeoutMs, logger)) { }
+
+        public TcpServerTransport(TransportSettings settings) {
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _logger = settings.Logger;
         }
 
         public Task<int> StartAsync(int port, CancellationToken ct = default) {
@@ -45,113 +86,51 @@ namespace NetSync.Transports.Tcp {
                 throw new InvalidOperationException("Server transport already running");
             }
 
+            try {
+                _listener = DualStack.StartTcpListener(port);
+            }
+            catch {
+                Volatile.Write(ref _running, 0);
+                throw;
+            }
             _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            _listener = new TcpListener(IPAddress.Any, port);
-            _listener.Start();
             Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
 
             var token = _cts.Token;
-            _ = Task.Run(() => AcceptLoopAsync(token));
+            var listener = _listener;
+            _ = Task.Run(() => TcpAcceptLoop.RunAsync(listener, client => ServeAsync(client, token), _logger, nameof(TcpServerTransport), token));
             _ = Task.Run(() => PingLoopAsync(token));
 
             _logger.Info($"TcpServerTransport listening on port {Port}");
             return Task.FromResult(Port);
         }
 
-        private async Task AcceptLoopAsync(CancellationToken ct) {
-            var listener = _listener!;
-            while (!ct.IsCancellationRequested) {
-                TcpClient tcpClient;
-                try {
-                    tcpClient = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
-                }
-                catch (Exception) when (ct.IsCancellationRequested) {
-                    return;
-                }
-                catch (Exception ex) {
-                    _logger.Error($"TcpServerTransport accept: {ex.Message}");
-                    continue;
-                }
-
-                tcpClient.NoDelay = true;
-                var endPoint = (IPEndPoint)tcpClient.Client.RemoteEndPoint!;
-                var peer = new TransportPeer(endPoint, NetTime.NowMs) { TransportState = tcpClient };
-                _peers[peer.Id] = peer;
-                PeerConnected?.Invoke(peer);
-                _ = Task.Run(() => ReceiveLoopAsync(peer, tcpClient, ct));
-            }
+        private Task ServeAsync(TcpClient tcpClient, CancellationToken ct) {
+            tcpClient.NoDelay = true;
+            var endPoint = DualStack.Normalize((IPEndPoint)tcpClient.Client.RemoteEndPoint!); // throws if already reset: the loop drops it
+            var state = new PeerState(tcpClient, _settings);
+            var peer = new TransportPeer(endPoint, NetTime.NowMs) { TransportState = state };
+            state.SendQueue.Start();
+            _peers[peer.Id] = peer;
+            PeerConnected?.Invoke(peer);
+            return ReceiveLoopAsync(peer, state, ct);
         }
 
-        private async Task ReceiveLoopAsync(TransportPeer peer, TcpClient tcpClient, CancellationToken ct) {
+        private async Task ReceiveLoopAsync(TransportPeer peer, PeerState state, CancellationToken ct) {
             var reason = DisconnectReason.Remote;
+            var reader = new TcpFrameReader();
             try {
-                var stream = tcpClient.GetStream();
-                var header = new byte[PacketProtocol.PingPacketSize];
-
                 while (!ct.IsCancellationRequested) {
-                    if (!await ReadExactAsync(stream, header, 0, 1, ct).ConfigureAwait(false)) {
+                    int read = await state.Stream.ReadAsync(reader.GetReadMemory(), ct).ConfigureAwait(false);
+                    if (read == 0) {
                         break;
                     }
                     peer.Touch(NetTime.NowMs);
-
-                    var type = (PacketType)header[0];
-                    switch (type) {
-                        case PacketType.Ping:
-                        case PacketType.Pong: {
-                            if (!await ReadExactAsync(stream, header, 1, 8, ct).ConfigureAwait(false)) {
-                                goto done;
-                            }
-                            long timestamp = PacketProtocol.ReadTimestamp(header);
-                            if (type == PacketType.Ping) {
-                                var pong = PacketProtocol.RentPongPacket(timestamp);
-                                try {
-                                    await WriteRawAsync(peer, tcpClient, pong, PacketProtocol.PingPacketSize, ct).ConfigureAwait(false);
-                                }
-                                finally {
-                                    PacketProtocol.Return(pong);
-                                }
-                            }
-                            else {
-                                peer.SetPing((int)Math.Max(0, NetTime.NowMs - timestamp));
-                            }
-                            break;
-                        }
-
-                        case PacketType.Data: {
-                            if (!await ReadExactAsync(stream, header, 1, 4, ct).ConfigureAwait(false)) {
-                                goto done;
-                            }
-                            int length = PacketProtocol.ReadTcpFrameLength(header);
-                            if (length < 0) {
-                                _logger.Error($"TcpServerTransport: invalid frame length {length} from {peer}");
-                                reason = DisconnectReason.Error;
-                                goto done;
-                            }
-                            if (length == 0) {
-                                DeliverPayload(peer, Array.Empty<byte>(), 0);
-                                break;
-                            }
-
-                            var payload = ArrayPool<byte>.Shared.Rent(length);
-                            try {
-                                if (!await ReadExactAsync(stream, payload, 0, length, ct).ConfigureAwait(false)) {
-                                    goto done;
-                                }
-                                DeliverPayload(peer, payload, length);
-                            }
-                            finally {
-                                ArrayPool<byte>.Shared.Return(payload);
-                            }
-                            break;
-                        }
-
-                        default:
-                            _logger.Error($"TcpServerTransport: unknown packet type 0x{header[0]:X2} from {peer}");
-                            reason = DisconnectReason.Error;
-                            goto done;
+                    reader.Advance(read);
+                    if (!ProcessFrames(peer, state, reader, ref reason)) {
+                        break;
                     }
                 }
-                done: ;
             }
             catch (OperationCanceledException) {
                 reason = DisconnectReason.Local;
@@ -165,69 +144,104 @@ namespace NetSync.Transports.Tcp {
             }
             finally {
                 RemovePeer(peer, reason);
+                reader.Dispose();
             }
         }
 
-        // buffer is pooled and only valid during this call.
-        private void DeliverPayload(TransportPeer peer, byte[] buffer, int length) {
-            var span = buffer.AsSpan(0, length);
-            if (PacketFragmenter.TryUnwrap(span, out uint seqId, out uint index, out uint total, out var fragmentData)) {
-                var reassembled = peer.FragmentBuffer.AddFragment(seqId, index, total, fragmentData);
-                if (reassembled != null) {
-                    if (PooledReceive != null) {
-                        PooledReceive(peer, reassembled, 0, reassembled.Length);
+        /// <summary>Handles every complete buffered frame. False = protocol violation, drop the peer.</summary>
+        private bool ProcessFrames(TransportPeer peer, PeerState state, TcpFrameReader reader, ref DisconnectReason reason) {
+            while (true) {
+                // Re-evaluated per frame: the Hello inside this very batch may make the peer trusted.
+                int limit = RequireTrust && !peer.IsTrusted
+                    ? PacketProtocol.MaxUntrustedFrameBody
+                    : PacketProtocol.MaxTcpFrameBody;
+                var kind = reader.TryRead(limit, out int offset, out int length, out long timestamp);
+                switch (kind) {
+                    case TcpFrameReader.FrameKind.None:
+                        return true;
+
+                    case TcpFrameReader.FrameKind.Ping: {
+                        var pong = PacketProtocol.RentPongPacket(timestamp);
+                        if (!state.SendQueue.TryEnqueue(pong, PacketProtocol.PingPacketSize, pooled: true, SendPriority.Critical)) {
+                            PacketProtocol.Return(pong);
+                        }
+                        break;
                     }
-                    else {
-                        DataReceived?.Invoke(peer, reassembled);
-                    }
+
+                    case TcpFrameReader.FrameKind.Pong:
+                        peer.SetPing((int)Math.Max(0, NetTime.NowMs - timestamp));
+                        break;
+
+                    case TcpFrameReader.FrameKind.Data:
+                        if (!DeliverPayload(peer, state, reader.Buffer, offset, length)) {
+                            _logger.Warning($"TcpServerTransport: fragment limits violated by {peer}; dropping peer");
+                            reason = DisconnectReason.Error;
+                            return false;
+                        }
+                        break;
+
+                    default:
+                        _logger.Warning($"TcpServerTransport: invalid frame (type or length {offset}, limit {limit}) from {peer}; dropping peer");
+                        reason = DisconnectReason.Error;
+                        return false;
                 }
-                return;
-            }
-
-            if (PooledReceive != null) {
-                PooledReceive(peer, buffer, 0, length);
-            }
-            else {
-                DataReceived?.Invoke(peer, span.ToArray());
             }
         }
 
-        private static async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken ct) {
-            int total = 0;
-            while (total < count) {
-                int read = await stream.ReadAsync(buffer, offset + total, count - total, ct).ConfigureAwait(false);
-                if (read == 0) {
+        // buffer is pooled and only valid during this call. Returns false on a limit violation.
+        private bool DeliverPayload(TransportPeer peer, PeerState state, byte[] buffer, int offset, int length) {
+            var span = new ReadOnlySpan<byte>(buffer, offset, length);
+            if (PacketFragmenter.TryParse(span, out uint seqId, out uint index, out uint total, out var chunk)) {
+                if (!state.FragmentBuffer.TryAddFragmentPooled(seqId, index, total, chunk, out var reassembled, out int reassembledLength)) {
                     return false;
                 }
-                total += read;
+                if (reassembled != null) {
+                    try {
+                        Deliver(peer, reassembled, 0, reassembledLength);
+                    }
+                    finally {
+                        Pooled.Return(reassembled);
+                    }
+                }
+                return true;
             }
+            Deliver(peer, buffer, offset, length);
             return true;
+        }
+
+        private void Deliver(TransportPeer peer, byte[] buffer, int offset, int length) {
+            ReceivedPacket.Deliver(PooledReceive, DataReceived, peer, buffer, offset, length); // zero-copy: valid only during the call
         }
 
         private async Task PingLoopAsync(CancellationToken ct) {
             try {
                 while (!ct.IsCancellationRequested) {
+                    long now = NetTime.NowMs;
                     foreach (var kvp in _peers) {
                         var peer = kvp.Value;
-                        if (peer.TransportState is not TcpClient tcpClient) {
+                        if (peer.TransportState is not PeerState state) {
                             continue;
                         }
-                        var ping = PacketProtocol.RentPingPacket(NetTime.NowMs);
-                        try {
-                            await WriteRawAsync(peer, tcpClient, ping, PacketProtocol.PingPacketSize, ct).ConfigureAwait(false);
+
+                        // Enqueue, never write: one slow client must not stall everyone's keepalive.
+                        if (!RequireTrust || peer.IsTrusted) {
+                            var ping = PacketProtocol.RentPingPacket(now);
+                            if (!state.SendQueue.TryEnqueue(ping, PacketProtocol.PingPacketSize, pooled: true, SendPriority.Critical)) {
+                                PacketProtocol.Return(ping);
+                            }
                         }
-                        catch {
-                            RemovePeer(peer, DisconnectReason.Error);
+
+                        if (_settings.PingTimeoutMs > 0 && now - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                            RemovePeer(peer, DisconnectReason.Timeout);
                             continue;
                         }
-                        finally {
-                            PacketProtocol.Return(ping);
-                        }
-                        if (_pingTimeoutMs > 0 && NetTime.NowMs - peer.LastSeenMs > _pingTimeoutMs) {
+                        long writeStarted = state.SendQueue.WriteStartedAtMs;
+                        if (_settings.WriteTimeoutMs > 0 && writeStarted != 0 && now - writeStarted > _settings.WriteTimeoutMs) {
+                            _logger.Warning($"TcpServerTransport: {peer} stopped reading (write stalled); dropping peer");
                             RemovePeer(peer, DisconnectReason.Timeout);
                         }
                     }
-                    await Task.Delay(_pingIntervalMs, ct).ConfigureAwait(false);
+                    await Task.Delay(_settings.PingIntervalMs, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { }
@@ -237,66 +251,29 @@ namespace NetSync.Transports.Tcp {
             return SendAsync(peer, ReadOnlyMemory<byte>.Empty, data, ct);
         }
 
-        public async ValueTask SendAsync(TransportPeer peer, ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, CancellationToken ct = default) {
-            if (peer.TransportState is not TcpClient tcpClient) {
+        public ValueTask SendAsync(TransportPeer peer, ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, CancellationToken ct = default) {
+            return SendAsync(peer, prefix, payload, SendPriority.Normal, ct);
+        }
+
+        public ValueTask SendAsync(TransportPeer peer, ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, SendPriority priority, CancellationToken ct = default) {
+            if (peer.TransportState is not PeerState state) {
                 throw new ArgumentException("Peer does not belong to this transport", nameof(peer));
             }
+            if (priority == SendPriority.Critical) {
+                priority = SendPriority.High; // Critical is reserved for keepalive
+            }
 
-            try {
-                int totalLength = prefix.Length + payload.Length;
-                if (totalLength >= PacketFragmenter.MaxUnfragmentedSize) {
-                    await SendFragmentedAsync(peer, tcpClient, prefix, payload, totalLength, ct).ConfigureAwait(false);
-                }
-                else {
-                    var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
-                    try {
-                        await WriteRawAsync(peer, tcpClient, frame, length, ct).ConfigureAwait(false);
-                    }
-                    finally {
-                        PacketProtocol.Return(frame);
-                    }
-                }
+            int totalLength = prefix.Length + payload.Length;
+            if (totalLength >= PacketFragmenter.MaxUnfragmentedSize) {
+                return BulkSender.SendAsync(state.SendQueue, prefix, payload, PriorityMapping.ForFragments(priority), null, lengthPrefixed: true, ct);
             }
-            catch (Exception ex) when (ex is IOException || ex is SocketException || ex is ObjectDisposedException) {
-                RemovePeer(peer, DisconnectReason.Error);
-                throw;
-            }
-        }
 
-        private async Task SendFragmentedAsync(TransportPeer peer, TcpClient tcpClient, ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, int totalLength, CancellationToken ct) {
-            var whole = ArrayPool<byte>.Shared.Rent(totalLength);
-            try {
-                prefix.Span.CopyTo(whole);
-                payload.Span.CopyTo(whole.AsSpan(prefix.Length));
-
-                uint seqId = PacketFragmenter.NextSequenceId();
-                uint totalFragments = (uint)((totalLength + PacketFragmenter.FragmentSizeTcp - 1) / PacketFragmenter.FragmentSizeTcp);
-                for (uint i = 0; i < totalFragments; i++) {
-                    int offset = (int)(i * PacketFragmenter.FragmentSizeTcp);
-                    int chunkLength = Math.Min(PacketFragmenter.FragmentSizeTcp, totalLength - offset);
-                    var frame = PacketProtocol.RentTcpFragmentFrame(seqId, i, totalFragments, whole.AsSpan(offset, chunkLength), out int frameLength);
-                    try {
-                        await WriteRawAsync(peer, tcpClient, frame, frameLength, ct).ConfigureAwait(false);
-                    }
-                    finally {
-                        PacketProtocol.Return(frame);
-                    }
-                }
+            var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
+            if (!state.SendQueue.TryEnqueue(frame, length, pooled: true, priority)) {
+                PacketProtocol.Return(frame);
+                throw new InvalidOperationException($"Send queue overflow for {peer} (the client is not keeping up)");
             }
-            finally {
-                ArrayPool<byte>.Shared.Return(whole);
-            }
-        }
-
-        private static async Task WriteRawAsync(TransportPeer peer, TcpClient tcpClient, byte[] buffer, int length, CancellationToken ct) {
-            await peer.WriteLock.WaitAsync(ct).ConfigureAwait(false);
-            try {
-                var stream = tcpClient.GetStream();
-                await stream.WriteAsync(buffer, 0, length, ct).ConfigureAwait(false);
-            }
-            finally {
-                peer.WriteLock.Release();
-            }
+            return default;
         }
 
         public void DisconnectPeer(TransportPeer peer) => RemovePeer(peer, DisconnectReason.Local);
@@ -305,21 +282,23 @@ namespace NetSync.Transports.Tcp {
             if (!_peers.TryRemove(peer.Id, out _)) {
                 return; // already removed — event fires once
             }
-            try {
-                if (peer.TransportState is TcpClient tcpClient) {
+            if (peer.TransportState is PeerState state) {
+                try {
                     try {
-                        if (tcpClient.Connected) {
-                            tcpClient.Client.Shutdown(SocketShutdown.Both);
+                        if (state.Client.Connected) {
+                            state.Client.Client.Shutdown(SocketShutdown.Both);
                         }
                     }
                     catch { }
-                    tcpClient.Close();
+                    // Socket first: unblocks a write stuck on a client that stopped reading.
+                    state.Client.Close();
+                    state.SendQueue.Dispose();
+                    state.FragmentBuffer.Clear();
+                }
+                catch (Exception ex) {
+                    _logger.Debug($"TcpServerTransport peer close: {ex.Message}");
                 }
             }
-            catch (Exception ex) {
-                _logger.Debug($"TcpServerTransport peer close: {ex.Message}");
-            }
-            peer.FragmentBuffer.Clear();
             PeerDisconnected?.Invoke(peer, reason);
         }
 

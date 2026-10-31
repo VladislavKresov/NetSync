@@ -23,6 +23,22 @@ namespace NetSync.Discovery {
         private readonly int _intervalMs;
         private readonly INetLogger _logger;
         private CancellationTokenSource? _cts;
+        private byte[] _payload = Array.Empty<byte>();
+
+        /// <summary>
+        /// The server's own description, sent with every announcement (name, map, player
+        /// count…; up to 1 KB). Change it any time — the next announcement carries it.
+        /// </summary>
+        public byte[] Payload {
+            get => Volatile.Read(ref _payload);
+            set {
+                var payload = value ?? Array.Empty<byte>();
+                if (payload.Length > DiscoveryMessage.MaxPayloadBytes) {
+                    throw new ArgumentException($"A discovery payload is limited to {DiscoveryMessage.MaxPayloadBytes} bytes", nameof(value));
+                }
+                Volatile.Write(ref _payload, payload);
+            }
+        }
 
         /// <summary>Test hook: when set, datagrams go only to this endpoint instead of broadcast.</summary>
         internal IPEndPoint? TargetOverride { get; set; }
@@ -57,10 +73,9 @@ namespace NetSync.Discovery {
         }
 
         private async Task BroadcastLoopAsync(CancellationToken ct) {
-            var message = DiscoveryMessage.Encode(_appId, _serverPort);
             try {
                 while (!ct.IsCancellationRequested) {
-                    SendOnce(message);
+                    SendOnce(DiscoveryMessage.Encode(_appId, _serverPort, Payload));
                     await Task.Delay(_intervalMs, ct).ConfigureAwait(false);
                 }
             }
@@ -81,16 +96,28 @@ namespace NetSync.Discovery {
 
             // Broadcast from every LAN-capable IPv4 address: a single socket would only
             // reach the default-route interface, missing e.g. a second Wi-Fi adapter.
+            bool sent = false;
             foreach (var localAddress in GetLanAddresses()) {
-                try {
-                    using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-                    socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
-                    socket.Bind(new IPEndPoint(localAddress, 0));
-                    socket.SendTo(message, new IPEndPoint(IPAddress.Broadcast, _discoveryPort));
-                }
-                catch (SocketException ex) {
-                    _logger.Debug($"Discovery broadcast on {localAddress} failed: {ex.Message}");
-                }
+                sent |= Broadcast(message, localAddress);
+            }
+            if (!sent) {
+                // No interface we recognise (some platforms report Wi-Fi as Unknown, others hide
+                // the list): let the OS pick, rather than announcing nowhere.
+                Broadcast(message, IPAddress.Any);
+            }
+        }
+
+        private bool Broadcast(byte[] message, IPAddress localAddress) {
+            try {
+                using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true);
+                socket.Bind(new IPEndPoint(localAddress, 0));
+                socket.SendTo(message, new IPEndPoint(IPAddress.Broadcast, _discoveryPort));
+                return true;
+            }
+            catch (SocketException ex) {
+                _logger.Debug($"Discovery broadcast on {localAddress} failed: {ex.Message}");
+                return false;
             }
         }
 

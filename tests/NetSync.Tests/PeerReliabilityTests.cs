@@ -57,7 +57,7 @@ namespace NetSync.Tests {
 
         [Fact]
         public async Task File_Transfer_Survives_Lossy_Network() {
-            // PLAN.md stage 4 acceptance: a file sent over UDP with ~5% packet loss
+            // Stage 4 acceptance: a file sent over UDP with ~5% packet loss
             // arrives intact. The proxy drops datagrams in both directions.
             var config = MakeUdpOnlyConfig();
             using var server = new NetServer(MakeUdpOnlyConfig());

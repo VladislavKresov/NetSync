@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
@@ -11,13 +11,18 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <!-- net8.0: trimming / NativeAOT analyzers on (warnings are errors) — the core uses no reflection. -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
   <!-- NuGet package -->
   <PropertyGroup>
     <PackageId>NetSync</PackageId>
-    <Version>2.0.0-rc.1</Version>
+    <Version>2.0.0-rc.3</Version>
     <Authors>Vladislav Kresov</Authors>
-    <Description>Fast, zero-dependency networking core: TCP+UDP channels over one connection, reliable UDP (ARQ), automatic fragmentation, optional per-channel compression and encryption, LAN discovery. netstandard2.1 (Unity 2021.2+) and net8.0, same wire protocol.</Description>
-    <PackageTags>networking;multiplayer;tcp;udp;reliable-udp;sockets;unity;encryption;lan</PackageTags>
+    <Description>Universal zero-dependency networking core for .NET: TCP+UDP channels over one connection, reliable UDP with packet batching, every packet authenticated (AES-GCM or HMAC), server identity pinning, connection approval, WebSocket transport for browsers, a relay with UDP hole punching, time sync and LAN discovery — with zero allocations per message. netstandard2.1 (Unity 2021.2+) and net8.0 (NativeAOT), one wire protocol.</Description>
+    <PackageTags>networking;multiplayer;game-networking;tcp;udp;reliable-udp;websocket;relay;nat-traversal;hole-punching;encryption;unity;file-transfer</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
@@ -35,6 +40,7 @@
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <InternalsVisibleTo Include="NetSync.Tests" />
+    <InternalsVisibleTo Include="NetSync.Tests.NetStandard" />
     <InternalsVisibleTo Include="NetSync.Benchmarks" />
   </ItemGroup>
 

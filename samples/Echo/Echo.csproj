@@ -6,6 +6,9 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- NativeAOT smoke test: dotnet publish -c Release -r win-x64 -p:AotSample=true
+         (PublishAot as a global property would also hit the library's netstandard2.1 target). -->
+    <PublishAot Condition="'$(AotSample)' == 'true'">true</PublishAot>
   </PropertyGroup>
 
   <ItemGroup>

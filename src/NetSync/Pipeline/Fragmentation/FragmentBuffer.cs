@@ -4,20 +4,26 @@ using NetSync.Internal;
 
 namespace NetSync.Pipeline.Fragmentation {
     /// <summary>
-    /// Reassembles fragmented packets. Improvements over the 1.x version:
-    /// fragments live in a flat array instead of a Dictionary, completeness is an O(1)
-    /// counter check, stale-buffer cleanup is throttled instead of running on every
-    /// fragment, and total buffered memory is capped.
+    /// Reassembles fragmented packets with hard memory bounds — the remote decides
+    /// fragment counts and sizes, so every number it sends is treated as hostile:
+    /// per-packet byte cap, per-packet fragment cap, total buffered-bytes cap,
+    /// concurrent-assembly cap, throttled stale cleanup.
+    ///
+    /// Fragments are held in pooled buffers and the reassembled message is handed out
+    /// in a pooled buffer too (<see cref="TryAddFragmentPooled"/>): large transfers don't
+    /// churn the large-object heap.
     /// </summary>
     public sealed class FragmentBuffer {
         private sealed class Assembly {
             public readonly byte[]?[] Fragments;
+            public readonly int[] Lengths;
             public int ReceivedCount;
-            public int TotalBytes;
+            public long TotalBytes;
             public long LastFragmentAtMs;
 
             public Assembly(uint total) {
                 Fragments = new byte[total][];
+                Lengths = new int[total];
             }
 
             public bool IsComplete => ReceivedCount == Fragments.Length;
@@ -26,23 +32,71 @@ namespace NetSync.Pipeline.Fragmentation {
         private readonly Dictionary<uint, Assembly> _assemblies = new Dictionary<uint, Assembly>();
         private readonly object _lock = new object();
         private long _lastCleanupMs;
+        private long _bufferedBytes;
 
         /// <summary>Incomplete packets are dropped after this long without new fragments.</summary>
         public int FragmentTimeoutMs { get; set; } = 5000;
 
         /// <summary>Upper bound on simultaneously reassembling packets; oldest is evicted.</summary>
-        public int MaxConcurrentPackets { get; set; } = 64;
+        public int MaxConcurrentPackets { get; set; } = 16;
 
-        /// <summary>Sanity cap: reject absurd fragment counts (protocol error / attack).</summary>
-        public int MaxFragmentsPerPacket { get; set; } = 1 << 20;
+        /// <summary>Largest fragment count a single packet may claim.</summary>
+        public int MaxFragmentsPerPacket { get; set; } = 1 << 16;
+
+        /// <summary>Largest reassembled packet.</summary>
+        public long MaxPacketBytes { get; set; } = NetConfig.DefaultMaxMessageSize;
+
+        /// <summary>Total bytes held across all incomplete packets.</summary>
+        public long MaxBufferedBytes { get; set; } = 4L * NetConfig.DefaultMaxMessageSize;
 
         /// <summary>
-        /// Adds a fragment. Returns the fully reassembled payload when this fragment
-        /// completes the packet, otherwise null.
+        /// Convenience wrapper: returns the reassembled payload or null; limit
+        /// violations are indistinguishable from "incomplete".
         /// </summary>
         public byte[]? AddFragment(uint sequenceId, uint index, uint total, byte[] data) {
-            if (total == 0 || total > MaxFragmentsPerPacket || index >= total) {
-                return null;
+            TryAddFragment(sequenceId, index, total, data, out var complete);
+            return complete;
+        }
+
+        /// <summary>
+        /// Adds a fragment. <paramref name="complete"/> receives the payload when this
+        /// fragment completes its packet. Returns false when the fragment violates a
+        /// limit or is malformed — the sender is misbehaving and the caller should
+        /// drop the connection. Duplicates are not violations (datagrams duplicate).
+        /// </summary>
+        public bool TryAddFragment(uint sequenceId, uint index, uint total, byte[] data, out byte[]? complete) {
+            complete = null;
+            if (!TryAddFragmentPooled(sequenceId, index, total, data, out var rented, out int length)) {
+                return false;
+            }
+            if (rented != null) {
+                complete = Pooled.ToArray(rented, 0, length);
+                Pooled.Return(rented);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Allocation-free variant: the fragment is copied into a pooled buffer, and a
+        /// completed packet comes back as a pooled buffer (<paramref name="complete"/>,
+        /// <paramref name="completeLength"/> valid bytes) that the caller must return
+        /// via <see cref="System.Buffers.ArrayPool{T}.Shared"/>.
+        /// </summary>
+        internal bool TryAddFragmentPooled(uint sequenceId, uint index, uint total, ReadOnlySpan<byte> data,
+                                           out byte[]? complete, out int completeLength) {
+            complete = null;
+            completeLength = 0;
+            if (total == 0 || index >= total || total > MaxFragmentsPerPacket) {
+                return false;
+            }
+            if (total == 1) {
+                // A single-fragment packet is already complete: nothing to buffer.
+                if (data.Length > MaxPacketBytes) {
+                    return false;
+                }
+                complete = Pooled.Copy(data);
+                completeLength = data.Length;
+                return true;
             }
 
             long now = NetTime.NowMs;
@@ -51,35 +105,55 @@ namespace NetSync.Pipeline.Fragmentation {
 
                 if (!_assemblies.TryGetValue(sequenceId, out var assembly)) {
                     if (_assemblies.Count >= MaxConcurrentPackets) {
-                        EvictOldest();
+                        EvictOldest(except: null);
                     }
                     assembly = new Assembly(total);
                     _assemblies[sequenceId] = assembly;
                 }
 
                 if (assembly.Fragments.Length != total || assembly.Fragments[index] != null) {
-                    // Mismatched totals for the same id or duplicate fragment: ignore.
+                    // Duplicate, or the same id reused with another total: ignore.
                     assembly.LastFragmentAtMs = now;
-                    return null;
+                    return true;
                 }
 
-                assembly.Fragments[index] = data;
+                if (assembly.TotalBytes + data.Length > MaxPacketBytes) {
+                    Remove(sequenceId, assembly);
+                    return false;
+                }
+                while (_bufferedBytes + data.Length > MaxBufferedBytes) {
+                    if (!EvictOldest(except: assembly)) {
+                        Remove(sequenceId, assembly);
+                        return false;
+                    }
+                }
+
+                assembly.Fragments[index] = Pooled.Copy(data);
+                assembly.Lengths[index] = data.Length;
                 assembly.ReceivedCount++;
                 assembly.TotalBytes += data.Length;
                 assembly.LastFragmentAtMs = now;
+                _bufferedBytes += data.Length;
 
                 if (!assembly.IsComplete) {
-                    return null;
+                    return true;
                 }
 
                 _assemblies.Remove(sequenceId);
-                var result = new byte[assembly.TotalBytes];
+                _bufferedBytes -= assembly.TotalBytes;
+                var result = Pooled.Rent((int)assembly.TotalBytes);
                 int offset = 0;
-                foreach (var fragment in assembly.Fragments) {
-                    fragment!.CopyTo(result, offset);
-                    offset += fragment.Length;
+                for (int i = 0; i < assembly.Fragments.Length; i++) {
+                    var fragment = assembly.Fragments[i]!;
+                    int length = assembly.Lengths[i];
+                    Buffer.BlockCopy(fragment, 0, result, offset, length);
+                    offset += length;
+                    Pooled.Return(fragment);
+                    assembly.Fragments[i] = null;
                 }
-                return result;
+                complete = result;
+                completeLength = offset;
+                return true;
             }
         }
 
@@ -91,9 +165,38 @@ namespace NetSync.Pipeline.Fragmentation {
             }
         }
 
+        public long BufferedBytes {
+            get {
+                lock (_lock) {
+                    return _bufferedBytes;
+                }
+            }
+        }
+
         public void Clear() {
             lock (_lock) {
+                foreach (var assembly in _assemblies.Values) {
+                    ReturnFragments(assembly);
+                }
                 _assemblies.Clear();
+                _bufferedBytes = 0;
+            }
+        }
+
+        private void Remove(uint sequenceId, Assembly assembly) {
+            if (_assemblies.Remove(sequenceId)) {
+                _bufferedBytes -= assembly.TotalBytes;
+                ReturnFragments(assembly);
+            }
+        }
+
+        private static void ReturnFragments(Assembly assembly) {
+            for (int i = 0; i < assembly.Fragments.Length; i++) {
+                var fragment = assembly.Fragments[i];
+                if (fragment != null) {
+                    Pooled.Return(fragment);
+                    assembly.Fragments[i] = null;
+                }
             }
         }
 
@@ -112,21 +215,26 @@ namespace NetSync.Pipeline.Fragmentation {
             }
             if (stale != null) {
                 foreach (var id in stale) {
-                    _assemblies.Remove(id);
+                    Remove(id, _assemblies[id]);
                 }
             }
         }
 
-        private void EvictOldest() {
+        private bool EvictOldest(Assembly? except) {
             uint oldestId = 0;
-            long oldestTime = long.MaxValue;
+            Assembly? oldest = null;
             foreach (var kvp in _assemblies) {
-                if (kvp.Value.LastFragmentAtMs < oldestTime) {
-                    oldestTime = kvp.Value.LastFragmentAtMs;
+                if (!ReferenceEquals(kvp.Value, except) &&
+                    (oldest == null || kvp.Value.LastFragmentAtMs < oldest.LastFragmentAtMs)) {
+                    oldest = kvp.Value;
                     oldestId = kvp.Key;
                 }
             }
-            _assemblies.Remove(oldestId);
+            if (oldest == null) {
+                return false;
+            }
+            Remove(oldestId, oldest);
+            return true;
         }
     }
 }

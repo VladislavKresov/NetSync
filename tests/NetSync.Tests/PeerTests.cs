@@ -112,7 +112,7 @@ namespace NetSync.Tests {
             await connection.DisconnectAsync();
 
             var reason = await WithTimeout(disconnected.Task);
-            Assert.Equal(DisconnectReason.Remote, reason);
+            Assert.Equal(DisconnectReason.Kicked, reason); // distinguishable from a server shutdown
             await server.StopAsync();
         }
 
@@ -210,6 +210,49 @@ namespace NetSync.Tests {
             Assert.True(client.IsConnected);
             Assert.NotEqual(firstId, client.ConnectionId);
             await server.StopAsync();
+        }
+
+        [Fact]
+        public async Task Channel_Table_Mismatch_Is_Rejected_With_Clear_Error() {
+            using var server = new NetServer(MakeConfig());
+            int port = await server.StartAsync(0);
+
+            var clientConfig = MakeConfig();
+            clientConfig.Channels[1] = new ChannelConfig(TransportType.Udp, ReliabilityMode.Reliable); // server: Unreliable
+            using var client = new NetClient(clientConfig);
+
+            var ex = await Assert.ThrowsAsync<ConnectionRejectedException>(async () => await client.ConnectAsync("127.0.0.1", port));
+            Assert.Equal(ConnectionRejection.Configuration, ex.Rejection);
+            Assert.Contains("configuration mismatch", ex.Message);
+            Assert.False(client.IsConnected);
+            await server.StopAsync();
+        }
+
+        [Fact]
+        public async Task MaxMessageSize_Mismatch_Is_Rejected() {
+            using var server = new NetServer(MakeConfig());
+            int port = await server.StartAsync(0);
+
+            var clientConfig = MakeConfig();
+            clientConfig.MaxMessageSize = 1024 * 1024;
+            using var client = new NetClient(clientConfig);
+
+            var ex = await Assert.ThrowsAsync<ConnectionRejectedException>(async () => await client.ConnectAsync("127.0.0.1", port));
+            Assert.Contains("configuration mismatch", ex.Message);
+            await server.StopAsync();
+        }
+
+        [Fact]
+        public void Config_Hash_Ignores_Declaration_Order() {
+            var first = new NetConfig();
+            first.Channels[0] = new ChannelConfig(TransportType.Tcp);
+            first.Channels[5] = new ChannelConfig(TransportType.Udp, ReliabilityMode.Reliable);
+            var second = new NetConfig();
+            second.Channels[5] = new ChannelConfig(TransportType.Udp, ReliabilityMode.Reliable);
+            second.Channels[0] = new ChannelConfig(TransportType.Tcp);
+
+            Assert.Equal(first.ComputeConfigHash(first.BuildChannelTable()),
+                         second.ComputeConfigHash(second.BuildChannelTable()));
         }
 
         private static async Task<T> WithTimeout<T>(Task<T> task, int timeoutMs = 5000) {

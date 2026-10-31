@@ -13,17 +13,63 @@ namespace NetSync.Peers {
     /// spanning one transport link per configured transport type.
     /// </summary>
     public sealed class NetConnection {
+        internal const int JoinNone = 0;
+        internal const int JoinPending = 1;   // approver running
+        internal const int JoinAccepted = 2;
+        internal const int JoinRejected = 3;
+
         private readonly NetServer _server;
         internal readonly ConcurrentDictionary<TransportType, TransportPeer> Links = new ConcurrentDictionary<TransportType, TransportPeer>();
         internal readonly long Token;
         internal readonly long CreatedAtMs;
-        internal readonly object CryptoLock = new object();
         internal ReliableEndpoint? Reliable;
         internal ConnectionCrypto? Crypto;
-        internal System.Security.Cryptography.ECDiffieHellman? Ecdh; // ephemeral, gone after key derivation
-        internal byte[]? EcdhPublicKey; // cached for Welcome re-sends after Ecdh is disposed
+        /// <summary>Packet authenticator per link slot (encrypted connections only).</summary>
+        internal readonly LinkSecurity?[] Security = new LinkSecurity?[2];
+        /// <summary>The client's ECDH key from its first Hello: later Hellos must carry the same.</summary>
+        internal byte[]? ClientPublicKey;
+        /// <summary>Identical on every link, so built once (the identity signature is costly).</summary>
+        internal byte[] WelcomeMessage = Array.Empty<byte>();
+        internal int JoinState;
+        internal int AuthRejectSent;
         internal int Announced;
+        internal int Degraded; // client gave up on UDP: UDP channels ride the TCP link
+        internal int HoldsSlot; // counts against NetConfig.MaxConnections
+
+        /// <summary>
+        /// True when this client could not establish UDP and its UDP channels are carried
+        /// over TCP (see <see cref="NetConfig.RequireAllTransports"/>).
+        /// </summary>
+        public bool IsDegraded => Volatile.Read(ref Degraded) == 1;
         internal int Closed;
+        internal readonly Diagnostics.TrafficCounters Traffic = new Diagnostics.TrafficCounters();
+
+        /// <summary>
+        /// Free slot for your own per-connection state (player object, session data,
+        /// a NetStreamReceiver…). NetSync never touches it.
+        /// </summary>
+        public object? Tag { get; set; }
+
+        /// <summary>Negotiated packet protection (None without a key exchange).</summary>
+        public CipherSuite CipherSuite { get; internal set; }
+
+        /// <summary>True between ConnectionOpened and ConnectionClosed.</summary>
+        public bool IsConnected => Volatile.Read(ref Announced) == 1 && Volatile.Read(ref Closed) == 0;
+
+        /// <summary>Traffic snapshot for this connection.</summary>
+        public Diagnostics.NetStatistics Statistics {
+            get {
+                var statistics = new Diagnostics.NetStatistics { PingMs = PingMs, IsDegraded = IsDegraded };
+                Traffic.CopyTo(statistics);
+                var reliable = Reliable;
+                if (reliable != null) {
+                    statistics.Retransmissions = reliable.Retransmissions;
+                    statistics.FastRetransmissions = reliable.FastRetransmissions;
+                    statistics.SmoothedRttMs = reliable.SmoothedRttMs;
+                }
+                return statistics;
+            }
+        }
 
         public long Id { get; }
 
@@ -58,12 +104,16 @@ namespace NetSync.Peers {
             }
         }
 
+        /// <summary>
+        /// Sends on a channel. <paramref name="data"/> is read only before this returns:
+        /// the buffer may be reused (or returned to a pool) right after the call.
+        /// </summary>
         public ValueTask SendAsync(byte channel, ReadOnlyMemory<byte> data, CancellationToken ct = default) {
             return _server.SendAsync(this, channel, data, ct);
         }
 
         /// <summary>Kicks this client: sends Bye on every link, then closes the connection.</summary>
-        public Task DisconnectAsync() => _server.KickAsync(this);
+        public Task DisconnectAsync() => _server.KickAsync(this, kicked: true);
 
         public override string ToString() {
             var tcp = GetEndPoint(TransportType.Tcp);

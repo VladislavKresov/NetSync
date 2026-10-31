@@ -1,0 +1,93 @@
+{
+  "collapse-filter": false,
+  "search": "",
+  "showTags": false,
+  "showAttachments": false,
+  "hideUnresolved": true,
+  "showOrphans": true,
+  "collapse-color-groups": false,
+  "colorGroups": [
+    {
+      "query": "tag:#layer/API",
+      "color": {
+        "a": 1,
+        "rgb": 15049994
+      }
+    },
+    {
+      "query": "tag:#layer/Session",
+      "color": {
+        "a": 1,
+        "rgb": 12607947
+      }
+    },
+    {
+      "query": "tag:#layer/Transports",
+      "color": {
+        "a": 1,
+        "rgb": 3507428
+      }
+    },
+    {
+      "query": "tag:#layer/Infrastructure",
+      "color": {
+        "a": 1,
+        "rgb": 2531945
+      }
+    },
+    {
+      "query": "tag:#layer/Foundation",
+      "color": {
+        "a": 1,
+        "rgb": 10131862
+      }
+    },
+    {
+      "query": "tag:#guide",
+      "color": {
+        "a": 1,
+        "rgb": 16146769
+      }
+    },
+    {
+      "query": "tag:#internals",
+      "color": {
+        "a": 1,
+        "rgb": 16742400
+      }
+    },
+    {
+      "query": "tag:#diagram",
+      "color": {
+        "a": 1,
+        "rgb": 3064446
+      }
+    },
+    {
+      "query": "tag:#overview OR tag:#moc",
+      "color": {
+        "a": 1,
+        "rgb": 16777215
+      }
+    },
+    {
+      "query": "tag:#project",
+      "color": {
+        "a": 1,
+        "rgb": 10076657
+      }
+    }
+  ],
+  "collapse-display": false,
+  "showArrow": true,
+  "textFadeMultiplier": -1,
+  "nodeSizeMultiplier": 1.2,
+  "lineSizeMultiplier": 1,
+  "collapse-forces": false,
+  "centerStrength": 0.45,
+  "repelStrength": 12,
+  "linkStrength": 1,
+  "linkDistance": 220,
+  "scale": 0.38230109687699737,
+  "close": true
+}

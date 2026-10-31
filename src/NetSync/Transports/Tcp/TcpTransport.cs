@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -15,13 +14,22 @@ namespace NetSync.Transports.Tcp {
     /// Client-side TCP transport. Frames packets, keeps the link alive with ping/pong,
     /// fragments large payloads so bulk data never blocks small real-time packets.
     ///
-    /// Hot paths are allocation-free: frames are built in ArrayPool buffers, queued as
-    /// structs and returned to the pool after the socket write; receive uses pooled
-    /// buffers plus a single exact-size copy for delivery.
+    /// Hot paths are allocation-free: frames are built in pooled buffers, coalesced into
+    /// batched socket writes, and received through one pooled buffer that yields many
+    /// frames per socket read.
+    ///
+    /// Hardened against a hostile or broken server: frame bodies above
+    /// <see cref="PacketProtocol.MaxTcpFrameBody"/> and reassembled messages above
+    /// <see cref="TransportSettings.MaxMessageSize"/> close the link instead of
+    /// allocating; a write stuck longer than <see cref="TransportSettings.WriteTimeoutMs"/>
+    /// closes it with <see cref="DisconnectReason.Timeout"/>.
     ///
     /// Reusable: each ConnectAsync builds a fresh connection state.
     /// </summary>
-    public sealed class TcpTransport : ITransport {
+    public sealed class TcpTransport : ITransport, IPrioritizedTransport, IPooledReceiveTransport {
+        /// <summary>Socket writes are batched up to this many bytes.</summary>
+        internal const int CoalesceBytes = 64 * 1024;
+
         // Everything that belongs to one physical connection lives here, so a stale
         // receive loop from a previous connection can never touch the current one.
         private sealed class Connection {
@@ -29,32 +37,26 @@ namespace NetSync.Transports.Tcp {
             public readonly NetworkStream Stream;
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
             public readonly SendQueue SendQueue;
-            public readonly FragmentBuffer FragmentBuffer = new FragmentBuffer();
-            public readonly SemaphoreSlim WriteLock = new SemaphoreSlim(1, 1);
+            public readonly FragmentBuffer FragmentBuffer;
             public readonly NetMetrics Metrics = new NetMetrics();
             public long LastPongAtMs = NetTime.NowMs;
             public int DisconnectSignaled; // 0 = live, 1 = disconnect already handled
 
-            public Connection(TcpClient client, INetLogger logger) {
+            public Connection(TcpClient client, TransportSettings settings) {
                 Client = client;
                 Stream = client.GetStream();
-                SendQueue = new SendQueue(WriteRawAsync, logger);
+                SendQueue = new SendQueue(WriteRawAsync, CoalesceBytes, settings.Logger);
+                FragmentBuffer = CreateFragmentBuffer(settings.MaxMessageSize);
             }
 
-            private async Task WriteRawAsync(byte[] buffer, int length, CancellationToken ct) {
-                await WriteLock.WaitAsync(ct).ConfigureAwait(false);
-                try {
-                    await Stream.WriteAsync(buffer, 0, length, ct).ConfigureAwait(false);
-                    Metrics.AddBytesSent(length);
-                }
-                finally {
-                    WriteLock.Release();
-                }
+            // Only the SendQueue drain loop writes, so no lock is needed.
+            private ValueTask WriteRawAsync(byte[] buffer, int length, CancellationToken ct) {
+                Metrics.AddBytesSent(length);
+                return Stream.WriteAsync(buffer.AsMemory(0, length), ct);
             }
         }
 
-        private readonly int _pingIntervalMs;
-        private readonly int _pingTimeoutMs;
+        private readonly TransportSettings _settings;
         private readonly INetLogger _logger;
         private Connection? _connection;
         private int _pingMs = -1;
@@ -72,30 +74,45 @@ namespace NetSync.Transports.Tcp {
         /// valid ONLY for the duration of the call. When set, <see cref="DataReceived"/>
         /// is not raised and no per-packet array is allocated by the transport.
         /// </summary>
-        internal Action<byte[], int, int>? PooledReceive;
+        internal Action<byte[], int, int>? PooledReceive { get; set; }
+
+        Action<byte[], int, int>? IPooledReceiveTransport.PooledReceive {
+            get => PooledReceive;
+            set => PooledReceive = value;
+        }
 
         /// <param name="pingIntervalMs">How often to ping the server.</param>
         /// <param name="pingTimeoutMs">Disconnect when no pong arrives for this long; 0 disables the check.</param>
         /// <param name="logger">Optional logger; defaults to <see cref="NullNetLogger"/>.</param>
-        public TcpTransport(int pingIntervalMs = 1000, int pingTimeoutMs = 5000, INetLogger? logger = null) {
-            _pingIntervalMs = pingIntervalMs;
-            _pingTimeoutMs = pingTimeoutMs;
-            _logger = logger ?? NullNetLogger.Instance;
+        public TcpTransport(int pingIntervalMs = 1000, int pingTimeoutMs = 5000, INetLogger? logger = null)
+            : this(TransportSettings.From(pingIntervalMs, pingTimeoutMs, logger)) { }
+
+        public TcpTransport(TransportSettings settings) {
+            _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _logger = settings.Logger;
+        }
+
+        internal static FragmentBuffer CreateFragmentBuffer(int maxMessageSize) {
+            return new FragmentBuffer {
+                MaxPacketBytes = maxMessageSize,
+                MaxBufferedBytes = 2L * maxMessageSize,
+                MaxFragmentsPerPacket = maxMessageSize / PacketFragmenter.FragmentSizeTcp + 2
+            };
         }
 
         public async Task ConnectAsync(IPEndPoint endpoint, CancellationToken ct = default) {
             Disconnect();
 
-            var client = new TcpClient { NoDelay = true };
+            var client = new TcpClient(endpoint.AddressFamily) { NoDelay = true };
             try {
-                await client.ConnectAsync(endpoint.Address, endpoint.Port).ConfigureAwait(false);
+                await TcpConnect.ConnectAsync(client, endpoint, ct).ConfigureAwait(false);
             }
             catch {
                 client.Dispose();
                 throw;
             }
 
-            var connection = new Connection(client, _logger);
+            var connection = new Connection(client, _settings);
             _connection = connection;
             _pingMs = -1;
             connection.SendQueue.Start();
@@ -110,116 +127,46 @@ namespace NetSync.Transports.Tcp {
         }
 
         public ValueTask SendAsync(ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, CancellationToken ct = default) {
+            return SendAsync(prefix, payload, SendPriority.Normal, ct);
+        }
+
+        public ValueTask SendAsync(ReadOnlyMemory<byte> prefix, ReadOnlyMemory<byte> payload, SendPriority priority, CancellationToken ct = default) {
             var connection = _connection ?? throw new InvalidOperationException("Not connected");
+            if (priority == SendPriority.Critical) {
+                priority = SendPriority.High; // Critical is reserved for keepalive
+            }
             int totalLength = prefix.Length + payload.Length;
 
             if (totalLength >= PacketFragmenter.MaxUnfragmentedSize) {
-                EnqueueFragmented(connection, prefix.Span, payload.Span, totalLength);
+                return BulkSender.SendAsync(connection.SendQueue, prefix, payload, PriorityMapping.ForFragments(priority),
+                                            connection.Metrics, lengthPrefixed: true, ct);
             }
-            else {
-                var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
-                if (!connection.SendQueue.TryEnqueue(frame, length, pooled: true, SendPriority.Normal)) {
-                    PacketProtocol.Return(frame);
-                    throw new InvalidOperationException("Send queue overflow");
-                }
-                connection.Metrics.IncrementPacketsSent();
+
+            var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
+            if (!connection.SendQueue.TryEnqueue(frame, length, pooled: true, priority)) {
+                PacketProtocol.Return(frame);
+                throw new InvalidOperationException("Send queue overflow (the remote is not keeping up)");
             }
+            connection.Metrics.IncrementPacketsSent();
             connection.Metrics.UpdateSendQueueSize(connection.SendQueue.Count);
             return default;
-        }
-
-        private void EnqueueFragmented(Connection connection, ReadOnlySpan<byte> prefix, ReadOnlySpan<byte> payload, int totalLength) {
-            // Bulk path: gather prefix+payload once into a rented scratch buffer, then
-            // cut fragments straight from it into rented frame buffers.
-            var whole = ArrayPool<byte>.Shared.Rent(totalLength);
-            try {
-                prefix.CopyTo(whole);
-                payload.CopyTo(whole.AsSpan(prefix.Length));
-
-                uint seqId = PacketFragmenter.NextSequenceId();
-                uint totalFragments = (uint)((totalLength + PacketFragmenter.FragmentSizeTcp - 1) / PacketFragmenter.FragmentSizeTcp);
-                for (uint i = 0; i < totalFragments; i++) {
-                    int offset = (int)(i * PacketFragmenter.FragmentSizeTcp);
-                    int chunkLength = Math.Min(PacketFragmenter.FragmentSizeTcp, totalLength - offset);
-                    var frame = PacketProtocol.RentTcpFragmentFrame(seqId, i, totalFragments, whole.AsSpan(offset, chunkLength), out int frameLength);
-                    if (!connection.SendQueue.TryEnqueue(frame, frameLength, pooled: true, SendPriority.Low)) {
-                        PacketProtocol.Return(frame);
-                        throw new InvalidOperationException("Send queue overflow");
-                    }
-                    connection.Metrics.IncrementFragmentsSent();
-                }
-            }
-            finally {
-                ArrayPool<byte>.Shared.Return(whole);
-            }
         }
 
         private async Task ReceiveLoopAsync(Connection connection) {
             var ct = connection.Cts.Token;
             var reason = DisconnectReason.Remote;
+            var reader = new TcpFrameReader();
             try {
-                var header = new byte[PacketProtocol.PingPacketSize]; // fits both frame header and ping/pong
                 while (!ct.IsCancellationRequested) {
-                    if (!await ReadExactAsync(connection.Stream, header, 0, 1, ct).ConfigureAwait(false)) {
+                    int read = await connection.Stream.ReadAsync(reader.GetReadMemory(), ct).ConfigureAwait(false);
+                    if (read == 0) {
                         break; // remote closed
                     }
-
-                    var type = (PacketType)header[0];
-                    switch (type) {
-                        case PacketType.Ping:
-                        case PacketType.Pong: {
-                            if (!await ReadExactAsync(connection.Stream, header, 1, 8, ct).ConfigureAwait(false)) {
-                                goto done;
-                            }
-                            long timestamp = PacketProtocol.ReadTimestamp(header);
-                            if (type == PacketType.Ping) {
-                                var pong = PacketProtocol.RentPongPacket(timestamp);
-                                if (!connection.SendQueue.TryEnqueue(pong, PacketProtocol.PingPacketSize, pooled: true, SendPriority.Critical)) {
-                                    PacketProtocol.Return(pong);
-                                }
-                            }
-                            else {
-                                Volatile.Write(ref _pingMs, (int)Math.Max(0, NetTime.NowMs - timestamp));
-                                Volatile.Write(ref connection.LastPongAtMs, NetTime.NowMs);
-                            }
-                            break;
-                        }
-
-                        case PacketType.Data: {
-                            if (!await ReadExactAsync(connection.Stream, header, 1, 4, ct).ConfigureAwait(false)) {
-                                goto done;
-                            }
-                            int length = PacketProtocol.ReadTcpFrameLength(header);
-                            if (length < 0) {
-                                _logger.Error($"TcpTransport: invalid frame length {length}");
-                                reason = DisconnectReason.Error;
-                                goto done;
-                            }
-                            if (length == 0) {
-                                DeliverPayload(connection, Array.Empty<byte>(), 0);
-                                break;
-                            }
-
-                            var payload = ArrayPool<byte>.Shared.Rent(length);
-                            try {
-                                if (!await ReadExactAsync(connection.Stream, payload, 0, length, ct).ConfigureAwait(false)) {
-                                    goto done;
-                                }
-                                DeliverPayload(connection, payload, length);
-                            }
-                            finally {
-                                ArrayPool<byte>.Shared.Return(payload);
-                            }
-                            break;
-                        }
-
-                        default:
-                            _logger.Error($"TcpTransport: unknown packet type 0x{header[0]:X2}");
-                            reason = DisconnectReason.Error;
-                            goto done;
+                    reader.Advance(read);
+                    if (!ProcessFrames(connection, reader, ref reason)) {
+                        break;
                     }
                 }
-                done: ;
             }
             catch (OperationCanceledException) {
                 reason = DisconnectReason.Local;
@@ -233,36 +180,76 @@ namespace NetSync.Transports.Tcp {
             }
             finally {
                 CloseConnection(connection, reason);
+                reader.Dispose();
             }
         }
 
-        // buffer is pooled and only valid during this call.
-        private void DeliverPayload(Connection connection, byte[] buffer, int length) {
-            var span = buffer.AsSpan(0, length);
-            if (PacketFragmenter.TryUnwrap(span, out uint seqId, out uint index, out uint total, out var fragmentData)) {
+        /// <summary>Handles every complete buffered frame. False = protocol violation, close the link.</summary>
+        private bool ProcessFrames(Connection connection, TcpFrameReader reader, ref DisconnectReason reason) {
+            while (true) {
+                var kind = reader.TryRead(PacketProtocol.MaxTcpFrameBody, out int offset, out int length, out long timestamp);
+                switch (kind) {
+                    case TcpFrameReader.FrameKind.None:
+                        return true;
+
+                    case TcpFrameReader.FrameKind.Ping: {
+                        var pong = PacketProtocol.RentPongPacket(timestamp);
+                        if (!connection.SendQueue.TryEnqueue(pong, PacketProtocol.PingPacketSize, pooled: true, SendPriority.Critical)) {
+                            PacketProtocol.Return(pong);
+                        }
+                        break;
+                    }
+
+                    case TcpFrameReader.FrameKind.Pong:
+                        Volatile.Write(ref _pingMs, (int)Math.Max(0, NetTime.NowMs - timestamp));
+                        Volatile.Write(ref connection.LastPongAtMs, NetTime.NowMs);
+                        break;
+
+                    case TcpFrameReader.FrameKind.Data:
+                        if (!DeliverPayload(connection, reader.Buffer, offset, length)) {
+                            _logger.Error("TcpTransport: fragment limits violated by the remote");
+                            reason = DisconnectReason.Error;
+                            return false;
+                        }
+                        break;
+
+                    default:
+                        _logger.Error($"TcpTransport: invalid frame (type or length {offset})");
+                        reason = DisconnectReason.Error;
+                        return false;
+                }
+            }
+        }
+
+        // buffer is pooled and only valid during this call. Returns false on a limit violation.
+        private bool DeliverPayload(Connection connection, byte[] buffer, int offset, int length) {
+            var span = new ReadOnlySpan<byte>(buffer, offset, length);
+            if (PacketFragmenter.TryParse(span, out uint seqId, out uint index, out uint total, out var chunk)) {
                 connection.Metrics.IncrementFragmentsReceived();
-                var reassembled = connection.FragmentBuffer.AddFragment(seqId, index, total, fragmentData);
+                if (!connection.FragmentBuffer.TryAddFragmentPooled(seqId, index, total, chunk, out var reassembled, out int reassembledLength)) {
+                    return false;
+                }
                 if (reassembled != null) {
                     connection.Metrics.IncrementPacketsReassembled();
-                    connection.Metrics.AddBytesReceived(reassembled.Length);
-                    if (PooledReceive != null) {
-                        PooledReceive(reassembled, 0, reassembled.Length);
+                    connection.Metrics.AddBytesReceived(reassembledLength);
+                    try {
+                        Deliver(reassembled, 0, reassembledLength);
                     }
-                    else {
-                        DataReceived?.Invoke(reassembled);
+                    finally {
+                        Pooled.Return(reassembled);
                     }
                 }
-                return;
+                return true;
             }
 
             connection.Metrics.IncrementPacketsReceived();
             connection.Metrics.AddBytesReceived(length);
-            if (PooledReceive != null) {
-                PooledReceive(buffer, 0, length);
-            }
-            else {
-                DataReceived?.Invoke(span.ToArray());
-            }
+            Deliver(buffer, offset, length);
+            return true;
+        }
+
+        private void Deliver(byte[] buffer, int offset, int length) {
+            ReceivedPacket.Deliver(PooledReceive, DataReceived, buffer, offset, length); // zero-copy: valid only during the call
         }
 
         private async Task PingLoopAsync(Connection connection) {
@@ -274,27 +261,22 @@ namespace NetSync.Transports.Tcp {
                         PacketProtocol.Return(ping);
                     }
 
-                    if (_pingTimeoutMs > 0 && NetTime.NowMs - Volatile.Read(ref connection.LastPongAtMs) > _pingTimeoutMs) {
+                    long now = NetTime.NowMs;
+                    if (_settings.PingTimeoutMs > 0 && now - Volatile.Read(ref connection.LastPongAtMs) > _settings.PingTimeoutMs) {
                         connection.Metrics.IncrementPingTimeouts();
                         CloseConnection(connection, DisconnectReason.Timeout);
                         return;
                     }
-                    await Task.Delay(_pingIntervalMs, ct).ConfigureAwait(false);
+                    long writeStarted = connection.SendQueue.WriteStartedAtMs;
+                    if (_settings.WriteTimeoutMs > 0 && writeStarted != 0 && now - writeStarted > _settings.WriteTimeoutMs) {
+                        _logger.Warning("TcpTransport: socket write stalled, the remote stopped reading");
+                        CloseConnection(connection, DisconnectReason.Timeout);
+                        return;
+                    }
+                    await Task.Delay(_settings.PingIntervalMs, ct).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) { }
-        }
-
-        private static async Task<bool> ReadExactAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken ct) {
-            int total = 0;
-            while (total < count) {
-                int read = await stream.ReadAsync(buffer, offset + total, count - total, ct).ConfigureAwait(false);
-                if (read == 0) {
-                    return false;
-                }
-                total += read;
-            }
-            return true;
         }
 
         public void Disconnect() {
@@ -316,16 +298,17 @@ namespace NetSync.Transports.Tcp {
 
             try {
                 connection.Cts.Cancel();
-                connection.SendQueue.Dispose();
                 try {
                     if (connection.Client.Connected) {
                         connection.Client.Client.Shutdown(SocketShutdown.Both);
                     }
                 }
                 catch { }
+                // Close the socket before stopping the queue: a write blocked on a
+                // remote that stopped reading only returns once the socket is gone.
                 connection.Stream.Close();
                 connection.Client.Close();
-                connection.WriteLock.Dispose();
+                connection.SendQueue.Dispose();
                 connection.FragmentBuffer.Clear();
                 connection.Cts.Dispose();
             }

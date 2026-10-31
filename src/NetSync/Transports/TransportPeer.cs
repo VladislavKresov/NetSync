@@ -1,11 +1,10 @@
 using System.Net;
 using System.Threading;
-using NetSync.Pipeline.Fragmentation;
 
 namespace NetSync.Transports {
     /// <summary>
-    /// A remote peer as seen by a server transport. Replaces the old TransportClient:
-    /// no untyped 'object Client' — transport-specific state stays inside the transport.
+    /// A remote peer as seen by a server transport. Transport-specific state stays
+    /// inside the transport (<see cref="TransportState"/> is internal on purpose).
     /// </summary>
     public sealed class TransportPeer {
         private static long _nextId;
@@ -20,20 +19,38 @@ namespace NetSync.Transports {
 
         private int _pingMs = -1;
         private long _lastSeenMs;
+        private int _trusted;
 
-        internal SemaphoreSlim WriteLock { get; } = new SemaphoreSlim(1, 1);
-        internal FragmentBuffer FragmentBuffer { get; } = new FragmentBuffer();
-
-        /// <summary>Transport-specific state (e.g. the TcpClient). Internal on purpose.</summary>
+        /// <summary>Transport-specific state (e.g. the TCP socket and its send queue).</summary>
         internal object? TransportState { get; set; }
+
+        /// <summary>Transport-specific send state (e.g. the UDP batch queue).</summary>
+        internal object? SendState { get; set; }
 
         /// <summary>Set by the peer layer once the handshake binds this link to a NetConnection.</summary>
         internal object? PeerLayerState { get; set; }
+
+        /// <summary>The server transport this peer arrived on (a server may run several per slot).</summary>
+        internal IServerTransport? Owner { get; set; }
+
+        /// <summary>
+        /// Set by the peer layer once the handshake succeeded. Until then a transport in
+        /// trust-required mode treats the peer as a potential attacker: tiny frame limit,
+        /// no keepalive traffic, counted against the untrusted-peer cap.
+        /// </summary>
+        internal bool IsTrusted => Volatile.Read(ref _trusted) == 1;
+        internal void MarkTrusted() => Volatile.Write(ref _trusted, 1);
 
         internal TransportPeer(IPEndPoint endPoint, long nowMs) {
             EndPoint = endPoint;
             _lastSeenMs = nowMs;
         }
+
+        /// <summary>For custom <see cref="IServerTransport"/> implementations: one per remote link.</summary>
+        public TransportPeer(IPEndPoint endPoint) : this(endPoint, Internal.NetTime.NowMs) { }
+
+        /// <summary>For custom transports: publish a measured round-trip time.</summary>
+        public void ReportPing(int pingMs) => SetPing(pingMs);
 
         internal void SetPing(int pingMs) => Volatile.Write(ref _pingMs, pingMs);
         internal void Touch(long nowMs) => Volatile.Write(ref _lastSeenMs, nowMs);
