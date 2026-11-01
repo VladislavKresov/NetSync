@@ -1,28 +1,47 @@
-name: Release to NuGet
+name: Release
 
 # Tag a commit `v2.0.0` (matching <Version> in NetSync.csproj) and push the tag.
-# Requires the NUGET_API_KEY repository secret.
+# The GitHub Release gets the NuGet package and a zip of the built DLLs.
+# nuget.org push runs only when the NUGET_API_KEY repository secret is set.
 on:
   push:
     tags:
       - "v*"
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Check tag matches version
+        run: |
+          VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/NetSync/NetSync.csproj)
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match <Version>$VERSION</Version>"; exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
       - name: Test
         run: dotnet test NetSync.sln -c Release
       - name: Pack
         run: dotnet pack src/NetSync/NetSync.csproj -c Release -o artifacts
+      - name: Zip DLLs
+        working-directory: src/NetSync/bin/Release
+        run: zip "$GITHUB_WORKSPACE/artifacts/NetSync-$VERSION.zip" */NetSync.dll */NetSync.xml */NetSync.pdb
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PRERELEASE=""
+          case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" artifacts/* --title "NetSync $VERSION" --generate-notes $PRERELEASE
       - name: Push to nuget.org
-        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
-      - name: Upload release artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nuget-release
-          path: artifacts/*.*nupkg
+        if: env.NUGET_API_KEY != ''
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
