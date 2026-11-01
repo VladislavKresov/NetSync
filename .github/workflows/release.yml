@@ -1,0 +1,28 @@
+name: Release to NuGet
+
+# Tag a commit `v2.0.0` (matching <Version> in NetSync.csproj) and push the tag.
+# Requires the NUGET_API_KEY repository secret.
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Test
+        run: dotnet test NetSync.sln -c Release
+      - name: Pack
+        run: dotnet pack src/NetSync/NetSync.csproj -c Release -o artifacts
+      - name: Push to nuget.org
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ secrets.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-release
+          path: artifacts/*.*nupkg
