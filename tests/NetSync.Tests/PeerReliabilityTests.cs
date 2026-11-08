@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using NetSync.Peers;
+using NetSync.Transports.Udp;
 using Xunit;
 
 namespace NetSync.Tests {
@@ -133,31 +134,32 @@ namespace NetSync.Tests {
                 _ = Task.Run(BackLoopAsync);
             }
 
-            private async Task FrontLoopAsync() {
-                try {
-                    while (!_disposed) {
-                        var result = await _front.ReceiveAsync();
-                        _clientEndPoint = result.RemoteEndPoint;
-                        if (ShouldDrop()) {
-                            continue;
-                        }
-                        await _back.SendAsync(result.Buffer, result.Buffer.Length, _serverEndPoint);
-                    }
+            private Task FrontLoopAsync() => ForwardLoopAsync(async () => {
+                var result = await _front.ReceiveAsync();
+                _clientEndPoint = result.RemoteEndPoint;
+                if (!ShouldDrop()) {
+                    await _back.SendAsync(result.Buffer, result.Buffer.Length, _serverEndPoint);
                 }
-                catch (Exception) when (_disposed) { }
-                catch (SocketException) { }
-                catch (ObjectDisposedException) { }
-            }
+            });
 
-            private async Task BackLoopAsync() {
+            private Task BackLoopAsync() => ForwardLoopAsync(async () => {
+                var result = await _back.ReceiveAsync();
+                var client = _clientEndPoint;
+                if (client != null && !ShouldDrop()) {
+                    await _front.SendAsync(result.Buffer, result.Buffer.Length, client);
+                }
+            });
+
+            private async Task ForwardLoopAsync(Func<Task> forwardOne) {
                 try {
                     while (!_disposed) {
-                        var result = await _back.ReceiveAsync();
-                        var client = _clientEndPoint;
-                        if (client == null || ShouldDrop()) {
-                            continue;
+                        try {
+                            await forwardOne();
                         }
-                        await _front.SendAsync(result.Buffer, result.Buffer.Length, client);
+                        catch (SocketException ex) when (UdpSockets.IsTransient(ex.SocketErrorCode)) {
+                            // Windows reports ICMP "port unreachable" for an earlier send on the
+                            // next receive. The socket is still usable: keep forwarding.
+                        }
                     }
                 }
                 catch (Exception) when (_disposed) { }
