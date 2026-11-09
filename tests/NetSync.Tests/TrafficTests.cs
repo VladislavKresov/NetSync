@@ -94,8 +94,65 @@ namespace NetSync.Tests {
             double low = await MeasureProbeDelayAsync(ChannelPriority.Low);
             _output.WriteLine($"median queueing delay seen by real-time probes: bulk Normal {normal:F1} ms, bulk Low {low:F1} ms");
 
+            // No comparison with Normal here: a busy machine can't saturate the path in real time,
+            // so its baseline proves nothing. Low_Priority_Window_Leaves_The_Queue_Empty compares them.
             Assert.True(low < 60, $"Low-priority bulk still caused {low:F1} ms of queueing delay");
+        }
+
+        [Fact]
+        public void Low_Priority_Window_Leaves_The_Queue_Empty() {
+            double normal = SimulateQueueingDelayMs(background: false);
+            double low = SimulateQueueingDelayMs(background: true);
+            _output.WriteLine($"median queueing delay in virtual time: Normal {normal:F1} ms, Low {low:F1} ms");
+
+            Assert.True(low < 60, $"Low-priority window kept {low:F1} ms queued");
             Assert.True(low < normal / 2, $"Low {low:F1} ms vs Normal {normal:F1} ms");
+        }
+
+        /// <summary>
+        /// A bulk sender on the bottleneck of <see cref="CreateLink"/>, in virtual time: the real
+        /// congestion window without threads or timers, so the machine can't affect the result.
+        /// </summary>
+        private static double SimulateQueueingDelayMs(bool background) {
+            const double bytesPerMs = 2000, packetBytes = 1100, oneWayMs = 10, queueLimitMs = 300, durationMs = 10_000;
+            var rtt = new RttEstimator();
+            var window = new CongestionWindow(background, maxWindow: ReliableEndpoint.WindowSize);
+            var events = new PriorityQueue<(bool Lost, double SentAtMs), double>();
+            var samples = new List<double>();
+            double now = 0, lastDeparture = 0, nextSample = 0;
+            int inFlight = 0;
+
+            void Fill() {
+                while (inFlight < window.AllowedInFlight) {
+                    inFlight++;
+                    if (Math.Max(0, lastDeparture - now) > queueLimitMs) {
+                        events.Enqueue((true, now), now + queueLimitMs + 2 * oneWayMs); // drop-tail: noticed about an RTT later
+                        continue;
+                    }
+                    lastDeparture = Math.Max(now, lastDeparture) + packetBytes / bytesPerMs;
+                    events.Enqueue((false, now), lastDeparture + 2 * oneWayMs);
+                }
+            }
+
+            Fill();
+            while (now < durationMs && events.TryDequeue(out var item, out double at)) {
+                for (; nextSample < at; nextSample += 10) {
+                    samples.Add(Math.Max(0, lastDeparture - nextSample)); // a probe sent then waits this long
+                }
+                now = at;
+                inFlight--;
+                if (item.Lost) {
+                    window.OnLoss(rtt, (long)now);
+                }
+                else {
+                    rtt.AddSample(now - item.SentAtMs, (long)now);
+                    window.OnAcked(1, rtt, (long)now);
+                }
+                Fill();
+            }
+
+            var settled = samples.Skip(samples.Count / 3).OrderBy(sample => sample).ToList(); // skip ramp-up
+            return settled[settled.Count / 2];
         }
 
         private async Task<double> MeasureProbeDelayAsync(ChannelPriority bulkPriority) {

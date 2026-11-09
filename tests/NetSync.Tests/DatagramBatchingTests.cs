@@ -20,8 +20,10 @@ namespace NetSync.Tests {
         private sealed class Capture {
             public readonly BlockingCollection<byte[]> Datagrams = new BlockingCollection<byte[]>();
             public ManualResetEventSlim Gate = new ManualResetEventSlim(true);
+            public readonly ManualResetEventSlim Entered = new ManualResetEventSlim(false);
 
             public void Send(object? destination, byte[] buffer, int offset, int length) {
+                Entered.Set();
                 Gate.Wait();
                 Datagrams.Add(buffer.AsSpan(offset, length).ToArray());
             }
@@ -83,7 +85,7 @@ namespace NetSync.Tests {
 
             // While the first send is stuck, everything else piles up: small, big, small.
             batcher.Enqueue(target, ReadOnlySpan<byte>.Empty, new byte[] { 0 });
-            Thread.Sleep(50);
+            Assert.True(capture.Entered.Wait(5000), "the drain loop never started");
             int next = 1;
             var expected = new List<int> { 0 };
             void Add(int size) {
@@ -119,7 +121,7 @@ namespace NetSync.Tests {
             var other = batcher.CreateTarget(null);
 
             batcher.Enqueue(stuck, ReadOnlySpan<byte>.Empty, new byte[100]); // blocks the drain loop
-            Thread.Sleep(50);
+            Assert.True(capture.Entered.Wait(5000), "the drain loop never started");
             int accepted = 0;
             while (batcher.Enqueue(stuck, ReadOnlySpan<byte>.Empty, new byte[1000])) {
                 accepted++;
@@ -140,7 +142,7 @@ namespace NetSync.Tests {
             var busy = batcher.CreateTarget(null);
             var closing = batcher.CreateTarget(null);
             batcher.Enqueue(busy, ReadOnlySpan<byte>.Empty, new byte[] { 1 }); // the drain loop blocks on this one
-            Thread.Sleep(50);
+            Assert.True(capture.Entered.Wait(5000), "the drain loop never started");
             batcher.Enqueue(closing, ReadOnlySpan<byte>.Empty, new byte[] { 2 }); // e.g. a Bye right before a kick
             batcher.Enqueue(busy, ReadOnlySpan<byte>.Empty, new byte[] { 3 });
 
@@ -148,7 +150,8 @@ namespace NetSync.Tests {
             var dispose = close.ContinueWith(_ => batcher.Dispose(), TaskScheduler.Default);
             capture.Gate.Set();
             Assert.Same(dispose, await Task.WhenAny(dispose, Task.Delay(5000)));
-            var payloads = capture.Datagrams.Select(d => d[1]).OrderBy(b => b).ToArray();
+            // Next(), not a snapshot: the send released by the gate may still be finishing.
+            var payloads = Enumerable.Range(0, 3).Select(_ => capture.Next()[1]).OrderBy(b => b).ToArray();
             Assert.Equal(new byte[] { 1, 2, 3 }, payloads);
         }
 

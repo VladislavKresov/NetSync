@@ -173,7 +173,6 @@ namespace NetSync.Sending {
                     await _work.WaitAsync().ConfigureAwait(false);
 
                     while (!ct.IsCancellationRequested && TryTakeWrite(out var job)) {
-                        Interlocked.Exchange(ref _writeStartedAtMs, NetTime.NowMs);
                         try {
                             await _write(job.Buffer, job.Length, ct).ConfigureAwait(false);
                         }
@@ -215,6 +214,8 @@ namespace NetSync.Sending {
                 }
                 taken = 1;
                 write = first;
+                // Under the lock: a job leaving the queue is never invisible to WaitUntilIdleAsync.
+                Interlocked.Exchange(ref _writeStartedAtMs, NetTime.NowMs);
                 if (_coalesceBytes > 0 && first.Length < _coalesceBytes && PeekLocked(out var next) &&
                     first.Length + next.Length <= _coalesceBytes) {
                     var batch = Pooled.Rent(_coalesceBytes);
@@ -279,6 +280,26 @@ namespace NetSync.Sending {
                 _count = 0;
                 _queuedBytes = 0;
             }
+        }
+
+        /// <summary>
+        /// Waits until everything queued so far has been written. False on timeout or shutdown.
+        /// For closing a connection without discarding its last messages; not for the data path.
+        /// </summary>
+        public async Task<bool> WaitUntilIdleAsync(int timeoutMs) {
+            long deadline = NetTime.NowMs + timeoutMs;
+            while (Volatile.Read(ref _disposed) == 0) {
+                lock (_lock) {
+                    if (_count == 0 && Interlocked.Read(ref _writeStartedAtMs) == 0) {
+                        return true;
+                    }
+                }
+                if (NetTime.NowMs >= deadline) {
+                    return false;
+                }
+                await Task.Delay(1).ConfigureAwait(false);
+            }
+            return false;
         }
 
         public void Dispose() {

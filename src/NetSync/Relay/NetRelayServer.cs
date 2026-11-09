@@ -184,7 +184,7 @@ namespace NetSync.Relay {
                             return true;
                         case RelayProtocol.PeerClose:
                             if (length >= 4 && room.StreamClients.TryRemove(BinaryPrimitives.ReadUInt32BigEndian(buffer.AsSpan(offset)), out var kicked)) {
-                                kicked.Dispose();
+                                _ = kicked.DisposeAfterFlushAsync(CloseFlushTimeoutMs); // the host's last frames, its Bye among them
                             }
                             return true;
                         case RelayProtocol.Keepalive:
@@ -249,6 +249,8 @@ namespace NetSync.Relay {
                 }
             }
         }
+
+        private const int CloseFlushTimeoutMs = 1000;
 
         private static async Task RefuseAsync(FramedConnection connection, string reason) {
             connection.TrySend(RelayProtocol.Refused, System.Text.Encoding.UTF8.GetBytes(reason), ReadOnlySpan<byte>.Empty, SendPriority.High);

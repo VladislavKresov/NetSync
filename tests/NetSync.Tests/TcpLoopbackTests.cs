@@ -88,7 +88,8 @@ namespace NetSync.Tests {
 
             await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
             client.Disconnect();
-            await Task.Delay(300); // let racing loops finish
+            Assert.True(await Eventually.HoldsAsync(() => Volatile.Read(ref disconnectCount) >= 1));
+            await Task.Delay(300); // a duplicate from a racing loop would arrive now
 
             Assert.Equal(1, disconnectCount);
             Assert.Equal(DisconnectReason.Local, reason);
@@ -119,9 +120,8 @@ namespace NetSync.Tests {
 
             using var client = new TcpTransport(pingIntervalMs: 100);
             await client.ConnectAsync(new IPEndPoint(IPAddress.Loopback, port));
-            await Task.Delay(600);
 
-            Assert.True(client.PingMs >= 0, $"client ping should be measured, got {client.PingMs}");
+            Assert.True(await Eventually.HoldsAsync(() => client.PingMs >= 0), $"client ping should be measured, got {client.PingMs}");
             await server.StopAsync();
         }
 

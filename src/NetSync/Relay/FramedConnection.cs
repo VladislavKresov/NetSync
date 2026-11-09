@@ -150,6 +150,12 @@ namespace NetSync.Relay {
             return timeoutMs > 0 && started != 0 && NetTime.NowMs - started > timeoutMs;
         }
 
+        /// <summary>Writes what is already queued (bounded wait), then closes.</summary>
+        public async Task DisposeAfterFlushAsync(int timeoutMs) {
+            await Queue.WaitUntilIdleAsync(timeoutMs).ConfigureAwait(false);
+            Dispose();
+        }
+
         public void Dispose() {
             if (Interlocked.Exchange(ref _closed, 1) == 1) {
                 return;

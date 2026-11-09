@@ -26,6 +26,11 @@ namespace NetSync.Transports {
     }
 
     /// <summary>Server-side counterpart of <see cref="IDatagramBoundaryTransport"/>.</summary>
+    internal interface IPeerFlushingServerTransport {
+        /// <summary>Waits (bounded) until what is already queued for the peer has been written.</summary>
+        System.Threading.Tasks.Task FlushPeerAsync(TransportPeer peer, int timeoutMs);
+    }
+
     internal interface IDatagramBoundaryServerTransport {
         Action<TransportPeer>? DatagramCompleted { get; set; }
     }

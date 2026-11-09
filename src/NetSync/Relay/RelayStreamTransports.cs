@@ -162,7 +162,7 @@ namespace NetSync.Relay {
     /// Host stream slot through a relay: every stream client of the room is a peer,
     /// multiplexed over the host's single control connection.
     /// </summary>
-    internal sealed class RelayStreamHostTransport : IServerTransport, IPrioritizedServerTransport,
+    internal sealed class RelayStreamHostTransport : IServerTransport, IPeerFlushingServerTransport, IPrioritizedServerTransport,
                                                      IPooledReceiveServerTransport, ITrustAwareServerTransport {
         private sealed class PeerState {
             public readonly uint ClientId;
@@ -350,6 +350,10 @@ namespace NetSync.Relay {
             return state.Link.SendAsync(prefix, payload, priority, ct);
         }
 
+        System.Threading.Tasks.Task IPeerFlushingServerTransport.FlushPeerAsync(TransportPeer peer, int timeoutMs) {
+            return peer.TransportState is PeerState state ? state.Link.SendQueue.WaitUntilIdleAsync(timeoutMs) : System.Threading.Tasks.Task.CompletedTask;
+        }
+
         public void DisconnectPeer(TransportPeer peer) {
             if (peer.TransportState is PeerState state) {
                 RemovePeer(state.ClientId, DisconnectReason.Local, notifyRelay: true);
@@ -363,7 +367,8 @@ namespace NetSync.Relay {
             if (notifyRelay && _session != null) {
                 var id = new byte[4];
                 BinaryPrimitives.WriteUInt32BigEndian(id, clientId);
-                _session.Connection.TrySend(RelayProtocol.PeerClose, id, ReadOnlySpan<byte>.Empty, SendPriority.High);
+                // Same priority as PeerData: the close must not overtake the peer's last frames.
+                _session.Connection.TrySend(RelayProtocol.PeerClose, id, ReadOnlySpan<byte>.Empty, SendPriority.Normal);
             }
             ((PeerState)peer.TransportState!).Link.Dispose();
             PeerDisconnected?.Invoke(peer, reason);

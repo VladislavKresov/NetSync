@@ -21,6 +21,7 @@ namespace NetSync.Transports.Udp {
                 Socket? socket = null;
                 try {
                     socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Dgram, ProtocolType.Udp) { DualMode = true };
+                    RequireExclusivePort(socket);
                     socket.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
                     Configure(socket);
                     return socket;
@@ -34,6 +35,7 @@ namespace NetSync.Transports.Udp {
             }
             var v4 = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             try {
+                RequireExclusivePort(v4);
                 v4.Bind(new IPEndPoint(IPAddress.Any, port));
                 Configure(v4);
                 return v4;
@@ -41,6 +43,23 @@ namespace NetSync.Transports.Udp {
             catch {
                 v4.Dispose();
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Windows lets an IPv4 socket and a dual-stack socket share a port number and delivers
+        /// IPv4 traffic to the IPv4 one: a server would bind without an error and hear nothing.
+        /// Exclusive binding turns that into an ordinary "port in use". Elsewhere it already is one.
+        /// </summary>
+        private static void RequireExclusivePort(Socket socket) {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+                return;
+            }
+            try {
+                socket.ExclusiveAddressUse = true;
+            }
+            catch (Exception ex) when (ex is SocketException || ex is PlatformNotSupportedException || ex is NotSupportedException) {
+                // Not available on this runtime: binding works as before.
             }
         }
 

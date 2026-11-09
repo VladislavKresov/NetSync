@@ -26,6 +26,7 @@ namespace NetSync.Relay {
         private const int RegisterTimeoutMs = 5000;
         private const int PunchIntervalMs = 100;
         private const int PunchDurationMs = 3000;
+        private const int PunchRetryMs = 5000;
 
         private sealed class Connection {
             public readonly IDatagramSocket Socket;
@@ -38,6 +39,7 @@ namespace NetSync.Relay {
             public IPEndPoint? Host;          // the host's public endpoint, for punching
             public int Direct;                // 1 = a datagram came straight from the host
             public long LastDirectMs;
+            public long LastPunchMs;
             public long LastPongAtMs = NetTime.NowMs;
             public int DisconnectSignaled;
 
@@ -112,10 +114,15 @@ namespace NetSync.Relay {
             _connection = connection;
             _pingMs = -1;
             if (_room.AllowDirect && connection.Host != null) {
-                _ = Task.Run(() => PunchAsync(connection));
+                StartPunching(connection);
             }
             _ = Task.Run(() => PingLoopAsync(connection));
             Connected?.Invoke();
+        }
+
+        private void StartPunching(Connection connection) {
+            Volatile.Write(ref connection.LastPunchMs, NetTime.NowMs);
+            _ = Task.Run(() => PunchAsync(connection));
         }
 
         private async Task PunchAsync(Connection connection) {
@@ -276,7 +283,12 @@ namespace NetSync.Relay {
                     if (connection.IsDirect && now - Volatile.Read(ref connection.LastDirectMs) > 3L * _settings.PingIntervalMs + 500) {
                         Volatile.Write(ref connection.Direct, 0);
                         _logger.Info($"Relay room '{_room.RoomId}': direct path quiet, back to the relay");
-                        _ = Task.Run(() => PunchAsync(connection));
+                        StartPunching(connection);
+                    }
+                    // A punching window can pass without success (a busy machine, a NAT not ready yet).
+                    if (!connection.IsDirect && _room.AllowDirect && connection.Host != null &&
+                        now - Volatile.Read(ref connection.LastPunchMs) > PunchRetryMs) {
+                        StartPunching(connection);
                     }
                     await Task.Delay(_settings.PingIntervalMs, ct).ConfigureAwait(false);
                 }
@@ -321,6 +333,7 @@ namespace NetSync.Relay {
     internal sealed class RelayDatagramHostTransport : IServerTransport, IPooledReceiveServerTransport, ITrustAwareServerTransport {
         private const int RegisterIntervalMs = 5000;
         private const int PunchCount = 15;
+        private const int PunchRetryMs = 5000;
         private const int PunchIntervalMs = 100;
 
         private sealed class ClientRecord {
@@ -329,6 +342,7 @@ namespace NetSync.Relay {
             public IPEndPoint? PublicEndPoint;
             public IPEndPoint? Direct;
             public long LastDirectMs;
+            public long LastPunchMs;
             public TransportPeer? Peer;
 
             public ClientRecord(uint id) => Id = id;
@@ -513,7 +527,7 @@ namespace NetSync.Relay {
                 record.PublicEndPoint = endPoint;
             }
             if (_room.AllowDirect && record.PublicEndPoint != null) {
-                _ = Task.Run(() => PunchAsync(record));
+                StartPunching(record);
             }
         }
 
@@ -540,6 +554,11 @@ namespace NetSync.Relay {
                 return;
             }
             HandlePacket(record, buffer, 1 + 4 + RelayProtocol.NonceSize, received - 1 - 4 - RelayProtocol.NonceSize);
+        }
+
+        private void StartPunching(ClientRecord record) {
+            Volatile.Write(ref record.LastPunchMs, NetTime.NowMs);
+            _ = Task.Run(() => PunchAsync(record));
         }
 
         private async Task PunchAsync(ClientRecord record) {
@@ -650,6 +669,11 @@ namespace NetSync.Relay {
                         var peer = record.Peer;
                         if (record.Direct != null && now - Volatile.Read(ref record.LastDirectMs) > 3L * _settings.PingIntervalMs + 500) {
                             record.Direct = null; // the direct path went quiet: relay again
+                        }
+                        // Keep our NAT open towards a client the first punches did not reach.
+                        if (record.Direct == null && _room.AllowDirect && record.PublicEndPoint != null &&
+                            now - Volatile.Read(ref record.LastPunchMs) > PunchRetryMs) {
+                            StartPunching(record);
                         }
                         if (peer == null) {
                             continue;

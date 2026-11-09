@@ -50,6 +50,27 @@ namespace NetSync.Tests {
             public void Dispose() => _inner.Dispose();
         }
 
+        /// <summary>Swallows outgoing punches until opened: a punching window that passes without success.</summary>
+        private sealed class PunchGateSocket : IDatagramSocket {
+            private readonly IDatagramSocket _inner;
+            private readonly Func<bool> _open;
+
+            public PunchGateSocket(IDatagramSocket inner, Func<bool> open) {
+                _inner = inner;
+                _open = open;
+            }
+
+            public void SendTo(byte[] buffer, int offset, int count, IPEndPoint remote) {
+                if (buffer[offset] != RelayProtocol.Punch || _open()) {
+                    _inner.SendTo(buffer, offset, count, remote);
+                }
+            }
+
+            public int ReceiveFrom(byte[] buffer, out IPEndPoint remote) => _inner.ReceiveFrom(buffer, out remote);
+
+            public void Dispose() => _inner.Dispose();
+        }
+
         /// <summary>
         /// Symmetric NAT: a new external port for every destination, each accepting only that
         /// destination. Peers learn a mapping the other side can't reuse — punching fails.
@@ -180,7 +201,8 @@ namespace NetSync.Tests {
         /// </summary>
         private static async Task<long> RelayedUdpOnceDirectAsync(NetRelayServer relay, Func<Task> traffic, long limit) {
             long relayed = long.MaxValue;
-            for (int round = 0; round < 5 && relayed >= limit; round++) {
+            var patience = System.Diagnostics.Stopwatch.StartNew(); // by time, not rounds: punching retries by itself
+            for (int round = 0; relayed >= limit && patience.ElapsedMilliseconds < 30_000; round++) {
                 await Task.Delay(round == 0 ? 1500 : 1000);
                 long before = relay.RelayedUdpBytes;
                 await traffic();
@@ -234,6 +256,19 @@ namespace NetSync.Tests {
                                                clientNat: family => new ConeNatSocket(family));
             long relayed = await RelayedUdpOnceDirectAsync(setup.Relay, () => EchoAllChannelsAsync(setup.Client, perChannel: 100, size: 1000), limit: 20_000);
             _output.WriteLine($"UDP bytes through the relay during 200 KB of UDP echo: {relayed}");
+            Assert.True(relayed < 20_000, $"{relayed} UDP bytes still went through the relay");
+        }
+
+        [Fact]
+        public async Task Punching_Retries_After_A_Window_That_Failed() {
+            int open = 0;
+            bool IsOpen() => Volatile.Read(ref open) == 1;
+            using var setup = await StartAsync(allowDirect: true,
+                                               hostNat: family => new PunchGateSocket(new ConeNatSocket(family), IsOpen),
+                                               clientNat: family => new PunchGateSocket(new ConeNatSocket(family), IsOpen));
+            await Task.Delay(3500); // the first windows of both sides are over
+            Volatile.Write(ref open, 1);
+            long relayed = await RelayedUdpOnceDirectAsync(setup.Relay, () => EchoAllChannelsAsync(setup.Client, perChannel: 100, size: 1000), limit: 20_000);
             Assert.True(relayed < 20_000, $"{relayed} UDP bytes still went through the relay");
         }
 

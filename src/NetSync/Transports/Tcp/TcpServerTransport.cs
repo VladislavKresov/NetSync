@@ -19,7 +19,7 @@ namespace NetSync.Transports.Tcp {
     /// caller on a slow client, keepalive jumps ahead of bulk data, and a client that
     /// stops reading is detected by the write watchdog instead of hanging the server.
     /// </summary>
-    public sealed class TcpServerTransport : IServerTransport, IPrioritizedServerTransport, IPooledReceiveServerTransport, ITrustAwareServerTransport {
+    public sealed class TcpServerTransport : IServerTransport, IPeerFlushingServerTransport, IPrioritizedServerTransport, IPooledReceiveServerTransport, ITrustAwareServerTransport {
         private sealed class PeerState {
             public readonly TcpClient Client;
             public readonly NetworkStream Stream;
@@ -274,6 +274,10 @@ namespace NetSync.Transports.Tcp {
                 throw new InvalidOperationException($"Send queue overflow for {peer} (the client is not keeping up)");
             }
             return default;
+        }
+
+        System.Threading.Tasks.Task IPeerFlushingServerTransport.FlushPeerAsync(TransportPeer peer, int timeoutMs) {
+            return peer.TransportState is PeerState state ? state.SendQueue.WaitUntilIdleAsync(timeoutMs) : System.Threading.Tasks.Task.CompletedTask;
         }
 
         public void DisconnectPeer(TransportPeer peer) => RemovePeer(peer, DisconnectReason.Local);

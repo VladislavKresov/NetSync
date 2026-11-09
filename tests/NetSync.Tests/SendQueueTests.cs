@@ -9,6 +9,25 @@ using Xunit;
 namespace NetSync.Tests {
     public class SendQueueTests {
         [Fact]
+        public async Task WaitUntilIdle_Waits_For_The_Write_In_Progress() {
+            var entered = new SemaphoreSlim(0);
+            var release = new SemaphoreSlim(0);
+            using var queue = new SendQueue(async (data, length, ct) => {
+                entered.Release();
+                await release.WaitAsync(ct);
+            }, NullNetLogger.Instance);
+            queue.Start();
+
+            Assert.True(queue.TryEnqueue(new byte[] { 0 }, 1, false, SendPriority.Normal));
+            await entered.WaitAsync();
+            Assert.Equal(0, queue.Count); // already taken, still being written
+
+            Assert.False(await queue.WaitUntilIdleAsync(30));
+            release.Release();
+            Assert.True(await queue.WaitUntilIdleAsync(5000));
+        }
+
+        [Fact]
         public async Task Drains_In_Priority_Order() {
             var sent = new List<byte>();
             var gate = new SemaphoreSlim(0);

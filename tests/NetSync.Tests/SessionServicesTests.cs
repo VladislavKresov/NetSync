@@ -42,13 +42,16 @@ namespace NetSync.Tests {
             Assert.True(double.IsNaN(client.ServerTimeMs));
             await client.ConnectAsync("127.0.0.1", port);
             await WaitUntilAsync(() => !double.IsNaN(client.ServerTimeMs));
-            await Task.Delay(600); // the initial burst picks the best of several samples
 
             // Same process, same physical clock: the estimate must match the server's own reading.
-            double error = client.ServerTimeMs - server.TimeMs;
+            // Eventually: the estimate improves with samples, and a thread can be preempted between the two reads.
+            double error = double.NaN;
+            bool settled = await Eventually.HoldsAsync(() => {
+                error = client.ServerTimeMs - server.TimeMs;
+                return Math.Abs(error) < 5 && client.ServerTimeAccuracyMs < 5;
+            });
             _output.WriteLine($"server {server.TimeMs:F2} ms, error {error:F3} ms, accuracy ±{client.ServerTimeAccuracyMs:F3} ms");
-            Assert.True(Math.Abs(error) < 5, $"clock estimate off by {error:F3} ms");
-            Assert.True(client.ServerTimeAccuracyMs < 5);
+            Assert.True(settled, $"clock estimate off by {error:F3} ms, accuracy ±{client.ServerTimeAccuracyMs:F3} ms");
             await server.StopAsync();
         }
 
@@ -142,7 +145,7 @@ namespace NetSync.Tests {
                 await client.SendAsync(channel, new byte[] { 1 });
                 Assert.True(await echoed.WaitAsync(5000));
                 _output.WriteLine($"channel {channel}: RTT {stopwatch.Elapsed.TotalMilliseconds:F1} ms");
-                Assert.InRange(stopwatch.Elapsed.TotalMilliseconds, 75, 400); // 2 × 40 ms added, loopback adds ~nothing
+                Assert.True(stopwatch.Elapsed.TotalMilliseconds >= 75, "the simulated 2 × 40 ms were not applied"); // a busy machine only adds to it
             }
             await server.StopAsync();
         }

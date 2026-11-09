@@ -155,8 +155,7 @@ namespace NetSync.Tests {
             await server.StopAsync();          // server goes away…
             server.Dispose();
             Assert.Equal(DisconnectReason.Remote, await WithTimeout(disconnected.Task));
-            await Task.Delay(400);             // …a few attempts fail meanwhile…
-            Assert.True(Volatile.Read(ref reconnecting) >= 1);
+            Assert.True(await Eventually.HoldsAsync(() => Volatile.Read(ref reconnecting) >= 1)); // …a few attempts fail meanwhile…
 
             using var restarted = new NetServer(MakeConfig()); // …and comes back on the same port
             restarted.DataReceived += (conn, channel, data) => _ = conn.SendAsync(channel, data);

@@ -1,5 +1,6 @@
 using System;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using NetSync.Transports.Udp;
@@ -7,6 +8,15 @@ using Xunit;
 
 namespace NetSync.Tests {
     public class UdpLoopbackTests {
+        [Fact]
+        public void Server_Socket_Refuses_A_Port_Held_By_An_Ipv4_Socket() {
+            using var holder = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            holder.Bind(new IPEndPoint(IPAddress.Any, 0));
+            int port = ((IPEndPoint)holder.LocalEndPoint!).Port;
+
+            Assert.Throws<SocketException>(() => NetSync.Transports.Udp.UdpSockets.BindServer(port).Dispose());
+        }
+
         [Fact]
         public async Task Echo_Small_Packet() {
             using var server = new UdpServerTransport();
@@ -38,10 +48,9 @@ namespace NetSync.Tests {
             await client.SendAsync(new byte[] { 1 }); // peers are opened by data, never by pings (anti-reflection)
 
             var peer = await WithTimeout(peerSeen.Task);
-            await Task.Delay(600);
 
-            Assert.True(client.PingMs >= 0, $"client ping should be measured, got {client.PingMs}");
-            Assert.True(peer.PingMs >= 0, $"server-side peer ping should be measured, got {peer.PingMs}");
+            Assert.True(await Eventually.HoldsAsync(() => client.PingMs >= 0), $"client ping should be measured, got {client.PingMs}");
+            Assert.True(await Eventually.HoldsAsync(() => peer.PingMs >= 0), $"server-side peer ping should be measured, got {peer.PingMs}");
             await server.StopAsync();
         }
 

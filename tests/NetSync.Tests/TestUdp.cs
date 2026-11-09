@@ -4,6 +4,20 @@ using System.Threading.Tasks;
 using Xunit;
 
 namespace NetSync.Tests {
+    internal static class Eventually {
+        /// <summary>Waits for a condition instead of assuming how long it takes: a slow machine only waits longer.</summary>
+        public static async Task<bool> HoldsAsync(Func<bool> condition, int timeoutMs = 15_000) {
+            var patience = System.Diagnostics.Stopwatch.StartNew();
+            while (!condition()) {
+                if (patience.ElapsedMilliseconds > timeoutMs) {
+                    return false;
+                }
+                await Task.Delay(10);
+            }
+            return true;
+        }
+    }
+
     internal static class TestUdp {
         /// <summary>
         /// Sends a raw datagram until a reply arrives. Loopback UDP does drop datagrams when a

@@ -18,7 +18,7 @@ namespace NetSync.Transports.WebSockets {
     /// client. Same hardening as the TCP server: per-peer priority queue, write watchdog,
     /// tiny message limit until the handshake vouches for the peer, bounded handshake time.
     /// </summary>
-    internal sealed class WebSocketServerTransport : IServerTransport, IPrioritizedServerTransport,
+    internal sealed class WebSocketServerTransport : IPeerFlushingServerTransport, IServerTransport, IPrioritizedServerTransport,
                                                      IPooledReceiveServerTransport, ITrustAwareServerTransport {
         private const int HandshakeTimeoutMs = 10_000;
 
@@ -221,6 +221,10 @@ namespace NetSync.Transports.WebSockets {
                 throw new ArgumentException("Peer does not belong to this transport", nameof(peer));
             }
             return state.Link.SendAsync(prefix, payload, priority, ct);
+        }
+
+        System.Threading.Tasks.Task IPeerFlushingServerTransport.FlushPeerAsync(TransportPeer peer, int timeoutMs) {
+            return peer.TransportState is PeerState state ? state.Link.SendQueue.WaitUntilIdleAsync(timeoutMs) : System.Threading.Tasks.Task.CompletedTask;
         }
 
         public void DisconnectPeer(TransportPeer peer) => RemovePeer(peer, DisconnectReason.Local);

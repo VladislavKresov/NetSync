@@ -515,6 +515,8 @@ namespace NetSync.Peers {
             }
         }
 
+        private const int ByeFlushTimeoutMs = 1000;
+
         internal async Task KickAsync(NetConnection connection, bool kicked) {
             byte reason = kicked ? PeerProtocol.ByeKicked : PeerProtocol.ByeGraceful;
             foreach (var kvp in connection.Links) {
@@ -524,6 +526,13 @@ namespace NetSync.Peers {
                 }
                 catch (Exception ex) {
                     _logger.Debug($"Bye to {connection} failed: {ex.Message}");
+                }
+            }
+            // The Bye is only queued so far, and closing a link discards its queue. Bounded:
+            // a client that stopped reading can't hold the kick up.
+            foreach (var kvp in connection.Links) {
+                if (kvp.Value.Owner is IPeerFlushingServerTransport flushing) {
+                    await flushing.FlushPeerAsync(kvp.Value, ByeFlushTimeoutMs).ConfigureAwait(false);
                 }
             }
             CloseConnection(connection, DisconnectReason.Local, notifyLinks: true);
@@ -601,9 +610,11 @@ namespace NetSync.Peers {
             }
             _cts?.Cancel();
 
+            var byes = new List<Task>(); // together: one stalled client must not delay the rest
             foreach (var connection in _connections.Values) {
-                await KickAsync(connection, kicked: false).ConfigureAwait(false); // shutdown: clients may reconnect
+                byes.Add(KickAsync(connection, kicked: false)); // shutdown: clients may reconnect
             }
+            await Task.WhenAll(byes).ConfigureAwait(false);
             foreach (var connection in _connectionsByToken.Values) {
                 CloseConnection(connection, DisconnectReason.Local, notifyLinks: true); // half-open handshakes
             }
