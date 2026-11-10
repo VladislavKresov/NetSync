@@ -16,10 +16,8 @@ Use it for game servers and engines, desktop and mobile apps, services, streamin
 
 ## Getting started
 
-Not on nuget.org yet. Download `NetSync.2.0.0-rc.3.nupkg` from [Releases](https://github.com/VladislavKresov/NetSync/releases) into a `packages` folder next to your project, then:
-
 ```
-dotnet add package NetSync --version 2.0.0-rc.3 --source ./packages
+dotnet add package NetSync --prerelease
 ```
 
 A server and a client in one program:

@@ -1,8 +1,11 @@
 name: Release
 
 # Tag a commit `v2.0.0` (matching <Version> in NetSync.csproj) and push the tag.
-# The GitHub Release gets the NuGet package and a zip of the built DLLs.
-# nuget.org push runs only when the NUGET_API_KEY repository secret is set.
+# Publishes, without any stored keys (trusted publishing over GitHub OIDC):
+#   - NuGet package NetSync to nuget.org (policy: nuget.org → Trusted Publishing → this repository, release.yml),
+#   - Unity package com.netsync.core to npmjs.com (com.netsync.core → Settings → Trusted Publisher → same),
+# then creates the GitHub Release with both packages and a zip of the built DLLs.
+# Safe to re-run: what is already published is skipped.
 on:
   push:
     tags:
@@ -10,17 +13,23 @@ on:
 
 permissions:
   contents: write
+  id-token: write # trusted publishing
+
+env:
+  NUGET_USER: vlad.kresov # nuget.org profile name (not the email) that owns the package
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    env:
-      NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # npm trusted publishing needs Node 22.14+ and npm 11.5.1+
+          registry-url: https://registry.npmjs.org
       - name: Check tag matches version
         run: |
           VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/NetSync/NetSync.csproj)
@@ -35,13 +44,35 @@ jobs:
       - name: Zip DLLs
         working-directory: src/NetSync/bin/Release
         run: zip "$GITHUB_WORKSPACE/artifacts/NetSync-$VERSION.zip" */NetSync.dll */NetSync.xml */NetSync.pdb
+      - name: Unity package
+        run: |
+          npm install -g npm@11
+          python3 tools/pack-unity.py --dll src/NetSync/bin/Release/netstandard2.1 --version "$VERSION" --out "$RUNNER_TEMP/unity"
+          npm pack "$RUNNER_TEMP/unity" --pack-destination artifacts
+
+      - name: NuGet login (temporary key)
+        uses: NuGet/login@v1
+        id: nuget
+        with:
+          user: ${{ env.NUGET_USER }}
+      - name: Push to nuget.org
+        run: dotnet nuget push "artifacts/*.nupkg" --api-key "${{ steps.nuget.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json --skip-duplicate
+      - name: Publish Unity package to npm
+        run: |
+          if [ "$(npm view "com.netsync.core@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "com.netsync.core $VERSION is already on npm"; exit 0
+          fi
+          TAG=""
+          case "$VERSION" in *-*) TAG="--tag next" ;; esac
+          npm publish "$RUNNER_TEMP/unity" --access public $TAG
+
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists"; exit 0
+          fi
           PRERELEASE=""
           case "$VERSION" in *-*) PRERELEASE="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" artifacts/* --title "NetSync $VERSION" --generate-notes $PRERELEASE
-      - name: Push to nuget.org
-        if: env.NUGET_API_KEY != ''
-        run: dotnet nuget push "artifacts/*.nupkg" --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

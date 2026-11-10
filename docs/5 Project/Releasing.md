@@ -8,22 +8,21 @@ tags: [project]
 
 1. Bump `<Version>` in `src/NetSync/NetSync.csproj`; wire-breaking changes also bump `PeerProtocol.ProtocolVersion` ([[PeerProtocol]]).
 2. `dotnet pack src/NetSync -c Release` → `.nupkg` + `.snupkg` (README embedded).
-3. Tag `v<version>` and push — `.github/workflows/release.yml` tests, packs and pushes with the `NUGET_API_KEY` secret. `ci.yml` builds both targets with warnings as errors, runs both suites on Windows and Linux, uploads the package.
+3. Tag `v<version>` and push — `.github/workflows/release.yml` tests, packs and pushes through trusted publishing: no stored key (nuget.org → Trusted Publishing policy for this repository and `release.yml`; the profile name is `NUGET_USER` in the workflow). `ci.yml` builds both targets with warnings as errors, runs both suites on Windows and Linux, uploads the package.
 4. NativeAOT smoke test: `dotnet publish samples/Echo -c Release -r win-x64 -p:AotSample=true`.
 
-## Before the first publish (open)
+## Unity package (core)
 
-- [ ] Real `RepositoryUrl` / `PackageProjectUrl` in `NetSync.csproj` (placeholder `your-name`) and the clone URL in README.
-- [ ] Check that the NuGet id `NetSync` is free.
-- [ ] Add the `NUGET_API_KEY` secret; create the GitHub remotes (none yet).
-- [ ] Tag `v2.0.0-rc.3`.
-- [ ] Open the Unity package in a real Unity 2021.2+ once.
+The same tag publishes `com.netsync.core` to npmjs.com, where Unity's Package Manager reads it as a scoped registry. `tools/pack-unity.py` wraps the netstandard2.1 DLL in a Unity package with generated `.meta` files (stable GUIDs, nothing Unity-specific in the repository), and `npm publish` sends it through trusted publishing: no token. The `.tgz` is attached to the GitHub Release as well.
+
+One-time setup: publish the first version by hand (`npm publish com.netsync.core-<version>.tgz --access public`), then npmjs.com → `com.netsync.core` → Settings → Trusted Publisher → GitHub Actions, `VladislavKresov/NetSync`, `release.yml`.
 
 ## Unity adapter (sibling repo)
 
-1. `powershell -File tools~/update-core.ps1` — rebuilds the core, refreshes the DLL.
-2. `dotnet build tools~/CompileCheck/CompileCheck.csproj` — compiles adapter + samples against UnityEngine stubs at C# 9.
-3. Bump `version` in `package.json` (same as NuGet), commit, tag.
-4. Test in real Unity (Mono and IL2CPP) — the stub check can't catch runtime behaviour.
+The adapter depends on `com.netsync.core` instead of carrying a copy of the DLL.
+
+1. Raise `"com.netsync.core"` in its `package.json` when it needs a newer core (Unity takes exact versions, not ranges; a project can always ask for a newer core itself).
+2. Bump `version`, commit, tag.
+3. Test in real Unity (Mono and IL2CPP).
 
 Pending adapter work for 2.2: [[Roadmap#Unity adapter]].

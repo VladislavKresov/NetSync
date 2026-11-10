@@ -19,7 +19,7 @@
   <!-- NuGet package -->
   <PropertyGroup>
     <PackageId>NetSync</PackageId>
-    <Version>2.0.0-rc.3</Version>
+    <Version>2.0.0-rc.4</Version>
     <Authors>Vladislav Kresov</Authors>
     <Description>Universal zero-dependency networking core for .NET: TCP+UDP channels over one connection, reliable UDP with packet batching, every packet authenticated (AES-GCM or HMAC), server identity pinning, connection approval, WebSocket transport for browsers, a relay with UDP hole punching, time sync and LAN discovery — with zero allocations per message. netstandard2.1 (Unity 2021.2+) and net8.0 (NativeAOT), one wire protocol.</Description>
     <PackageTags>networking;multiplayer;game-networking;tcp;udp;reliable-udp;websocket;relay;nat-traversal;hole-punching;encryption;unity;file-transfer</PackageTags>

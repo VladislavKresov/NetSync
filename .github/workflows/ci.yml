@@ -33,6 +33,10 @@ jobs:
           dotnet-version: 8.0.x
       - name: Pack
         run: dotnet pack src/NetSync/NetSync.csproj -c Release -o artifacts
+      - name: Unity package (the release publishes it)
+        run: |
+          python3 tools/pack-unity.py --dll src/NetSync/bin/Release/netstandard2.1 --version 0.0.0-ci --out "$RUNNER_TEMP/unity"
+          npm pack "$RUNNER_TEMP/unity" --dry-run
       - name: Upload package artifact
         uses: actions/upload-artifact@v4
         with:
