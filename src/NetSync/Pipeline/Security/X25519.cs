@@ -10,7 +10,7 @@ namespace NetSync.Pipeline.Security {
     /// compact, and every operation runs in constant time — no branch or array index
     /// depends on secret data.
     /// </summary>
-    internal static class X25519 {
+    internal static partial class X25519 {
         public const int KeySize = 32;
 
         private const int Limbs = 16;
@@ -46,6 +46,13 @@ namespace NetSync.Pipeline.Security {
             if (scalar.Length < KeySize || point.Length < KeySize || result.Length < KeySize) {
                 throw new ArgumentException($"X25519 keys are {KeySize} bytes");
             }
+#if NET8_0_OR_GREATER
+            ScalarMultiplyFast(scalar, point, result);
+        }
+
+        /// <summary>The portable form; on modern .NET it is kept for tests that compare the two.</summary>
+        internal static void ScalarMultiplyPortable(ReadOnlySpan<byte> scalar, ReadOnlySpan<byte> point, Span<byte> result) {
+#endif
             Span<byte> z = stackalloc byte[KeySize];
             scalar.Slice(0, KeySize).CopyTo(z);
             z[31] = (byte)((z[31] & 127) | 64);

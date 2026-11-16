@@ -78,6 +78,27 @@ namespace NetSync.Tests {
             Assert.False(X25519.TrySharedSecret(a, new byte[32], first)); // the all-zero point gives an all-zero secret
         }
 
+#if !CORE_NETSTANDARD
+        [Fact]
+        public void X25519_Fast_And_Portable_Forms_Agree() {
+            var random = new Random(5);
+            var scalar = new byte[32];
+            var point = new byte[32];
+            var fast = new byte[32];
+            var portable = new byte[32];
+            for (int i = 0; i < 300; i++) {
+                random.NextBytes(scalar);
+                random.NextBytes(point);
+                if (i % 50 == 0) {
+                    Array.Fill(point, (byte)0xFF); // edge: a value above the field prime
+                }
+                X25519.ScalarMultiply(scalar, point, fast);
+                X25519.ScalarMultiplyPortable(scalar, point, portable);
+                Assert.Equal(portable, fast);
+            }
+        }
+#endif
+
         [Fact] // RFC 5869, test case 1
         public void Hkdf_Matches_Rfc5869_Case_1() {
             var ikm = Hex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b");
