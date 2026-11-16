@@ -54,10 +54,10 @@ namespace NetSync.Pipeline.Security {
             Suite = suite;
             // The suite is part of every label: peers that disagree on it get unrelated keys
             // and fail at the first packet instead of misinterpreting each other.
-            var c2s = DeriveKey(sessionSecret, $"NetSync/3 enc c2s {(byte)suite}");
-            var s2c = DeriveKey(sessionSecret, $"NetSync/3 enc s2c {(byte)suite}");
-            var authC2s = DeriveKey(sessionSecret, $"NetSync/3 auth c2s {(byte)suite}");
-            var authS2c = DeriveKey(sessionSecret, $"NetSync/3 auth s2c {(byte)suite}");
+            var c2s = DeriveKey(sessionSecret, $"NetSync/4 enc c2s {(byte)suite}");
+            var s2c = DeriveKey(sessionSecret, $"NetSync/4 enc s2c {(byte)suite}");
+            var authC2s = DeriveKey(sessionSecret, $"NetSync/4 auth c2s {(byte)suite}");
+            var authS2c = DeriveKey(sessionSecret, $"NetSync/4 auth s2c {(byte)suite}");
             _sendKey = isClient ? c2s : s2c;
             _receiveKey = isClient ? s2c : c2s;
             _authSendKey = isClient ? authC2s : authS2c;
@@ -85,33 +85,9 @@ namespace NetSync.Pipeline.Security {
             return aes;
         }
 
-        /// <summary>Derives every per-direction key from a session secret.</summary>
+        /// <summary>Derives every per-direction key from a session secret (see <see cref="HandshakeKeys"/>).</summary>
         public static ConnectionCrypto FromSecret(byte[] sessionSecret, CipherSuite suite, bool isClient) {
             return new ConnectionCrypto(sessionSecret, suite, isClient);
-        }
-
-        /// <summary>
-        /// PSK mode: session secret = HMAC(psk, label ‖ sessionToken). The token is
-        /// public, the PSK is not — an eavesdropper cannot derive the session keys.
-        /// </summary>
-        public static ConnectionCrypto FromPresharedKey(byte[] presharedKey, long sessionToken, CipherSuite suite, bool isClient) {
-            var secret = PresharedSecret(presharedKey, sessionToken);
-            try {
-                return FromSecret(secret, suite, isClient);
-            }
-            finally {
-                Array.Clear(secret, 0, secret.Length);
-            }
-        }
-
-        private static byte[] PresharedSecret(byte[] presharedKey, long sessionToken) {
-            var salt = new byte[8];
-            BinaryPrimitives.WriteInt64BigEndian(salt, sessionToken);
-            using var hmac = new HMACSHA256(presharedKey);
-            var label = Encoding.ASCII.GetBytes("NetSync/3 session");
-            hmac.TransformBlock(label, 0, label.Length, null, 0);
-            hmac.TransformFinalBlock(salt, 0, salt.Length);
-            return hmac.Hash!;
         }
 
         private static byte[] DeriveKey(byte[] secret, string label) {

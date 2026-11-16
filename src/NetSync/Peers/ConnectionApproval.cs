@@ -73,7 +73,9 @@ namespace NetSync.Peers {
         /// <summary>The server's identity didn't match a pinned key (possible man-in-the-middle).</summary>
         ServerIdentity,
         /// <summary>The server application refused (ConnectionApprover, or server full).</summary>
-        Application
+        Application,
+        /// <summary>The server runs another application or application protocol version (NetConfig.AppId / AppProtocolVersion).</summary>
+        ApplicationMismatch
     }
 
     /// <summary>The server refused the connection, or the client refused the server.</summary>

@@ -31,8 +31,8 @@ namespace NetSync.Tests {
         [Theory]
         [MemberData(nameof(Suites))]
         public void Crypto_Roundtrips_Without_Leaking_Plaintext(CipherSuite suite) {
-            using var client = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42, suite, isClient: true);
-            using var server = ConnectionCrypto.FromPresharedKey(Psk, sessionToken: 42, suite, isClient: false);
+            using var client = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), suite, isClient: true);
+            using var server = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), suite, isClient: false);
 
             var plaintext = new byte[777];
             new Random(1).NextBytes(plaintext);
@@ -51,8 +51,8 @@ namespace NetSync.Tests {
             if (!CipherSuites.GcmSupported) {
                 return;
             }
-            using var client = ConnectionCrypto.FromPresharedKey(Psk, 42, CipherSuite.AesGcm, isClient: true);
-            using var server = ConnectionCrypto.FromPresharedKey(Psk, 42, CipherSuite.AesGcm, isClient: false);
+            using var client = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), CipherSuite.AesGcm, isClient: true);
+            using var server = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), CipherSuite.AesGcm, isClient: false);
             var encrypted = Encrypt(client, new byte[] { 1, 2, 3, 4 });
             encrypted[^1] ^= 0xFF;
             Assert.Null(Decrypt(server, encrypted));
@@ -62,11 +62,11 @@ namespace NetSync.Tests {
         [Theory]
         [MemberData(nameof(Suites))]
         public void Different_Psk_Token_Or_Suite_Yields_Incompatible_Keys(CipherSuite suite) {
-            var (client, server) = (ConnectionCrypto.FromPresharedKey(Psk, 42, suite, true).CreateLinkSecurity(TransportType.Tcp),
-                                    ConnectionCrypto.FromPresharedKey(Psk, 42, suite, false).CreateLinkSecurity(TransportType.Tcp));
-            var wrongKey = ConnectionCrypto.FromPresharedKey(Encoding.ASCII.GetBytes("another-key-another-key-32bytes!"), 42, suite, false)
+            var (client, server) = (ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), suite, true).CreateLinkSecurity(TransportType.Tcp),
+                                    ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), suite, false).CreateLinkSecurity(TransportType.Tcp));
+            var wrongKey = ConnectionCrypto.FromSecret(TestKeys.Secret(Encoding.ASCII.GetBytes("another-key-another-key-32bytes!"), 42), suite, false)
                                            .CreateLinkSecurity(TransportType.Tcp);
-            var wrongToken = ConnectionCrypto.FromPresharedKey(Psk, 43, suite, false).CreateLinkSecurity(TransportType.Tcp);
+            var wrongToken = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 43), suite, false).CreateLinkSecurity(TransportType.Tcp);
             var otherSuite = suite == CipherSuite.AesGcm ? CipherSuite.AesCbcHmacSha256 : (CipherSuites.GcmSupported ? CipherSuite.AesGcm : suite);
 
             var envelope = client.Wrap(ReadOnlySpan<byte>.Empty, new byte[] { 0x10, 0, 1, 2, 3 });
@@ -74,23 +74,36 @@ namespace NetSync.Tests {
             Assert.False(wrongKey.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
             Assert.False(wrongToken.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
             if (otherSuite != suite) {
-                var mismatched = ConnectionCrypto.FromPresharedKey(Psk, 42, otherSuite, false).CreateLinkSecurity(TransportType.Tcp);
+                var mismatched = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 42), otherSuite, false).CreateLinkSecurity(TransportType.Tcp);
                 Assert.False(mismatched.TryUnwrap((byte[])envelope.Clone(), 0, envelope.Length, out _, out _));
             }
         }
 
         [Fact]
-        public void Ecdh_Both_Sides_Derive_The_Same_Secret() {
-            using var client = EcdhKeyExchange.Create();
-            using var server = EcdhKeyExchange.Create();
-            var clientPub = EcdhKeyExchange.ExportPublicKey(client);
-            var serverPub = EcdhKeyExchange.ExportPublicKey(server);
+        public void Both_Sides_Derive_The_Same_Secret_And_Every_Input_Matters() {
+            var clientPrivate = new byte[32];
+            var serverPrivate = new byte[32];
+            X25519.GeneratePrivateKey(clientPrivate);
+            X25519.GeneratePrivateKey(serverPrivate);
+            var clientPublic = new byte[32];
+            var serverPublic = new byte[32];
+            X25519.PublicKey(clientPrivate, clientPublic);
+            X25519.PublicKey(serverPrivate, serverPublic);
+            var fromClient = new byte[32];
+            var fromServer = new byte[32];
+            Assert.True(X25519.TrySharedSecret(clientPrivate, serverPublic, fromClient));
+            Assert.True(X25519.TrySharedSecret(serverPrivate, clientPublic, fromServer));
 
-            var clientSecret = EcdhKeyExchange.DeriveSessionSecret(client, serverPub, sessionToken: 7);
-            var serverSecret = EcdhKeyExchange.DeriveSessionSecret(server, clientPub, sessionToken: 7);
-
+            byte[] Transcript(byte suites) => HandshakeKeys.Transcript(7, 1, 1, suites, 0, 0, 0, clientPublic, CipherSuite.AesCbcHmacSha256, 0,
+                                                                       serverPublic, ReadOnlySpan<byte>.Empty);
+            var clientSecret = HandshakeKeys.SessionSecret(Transcript(3), fromClient, ReadOnlySpan<byte>.Empty, Psk);
+            var serverSecret = HandshakeKeys.SessionSecret(Transcript(3), fromServer, ReadOnlySpan<byte>.Empty, Psk);
             Assert.Equal(clientSecret, serverSecret);
             Assert.Equal(32, clientSecret.Length);
+
+            // A different shared key, or a transcript altered in transit, gives unrelated keys.
+            Assert.NotEqual(clientSecret, HandshakeKeys.SessionSecret(Transcript(3), fromServer, ReadOnlySpan<byte>.Empty, new byte[32]));
+            Assert.NotEqual(clientSecret, HandshakeKeys.SessionSecret(Transcript(1), fromServer, ReadOnlySpan<byte>.Empty, Psk));
         }
 
         [Fact]
@@ -126,7 +139,7 @@ namespace NetSync.Tests {
         [Fact]
         public void Transform_Rejects_Plaintext_On_Encrypted_Channel() {
             var channel = new ChannelConfig(TransportType.Tcp, encryption: true);
-            using var crypto = ConnectionCrypto.FromPresharedKey(Psk, 1, CipherSuite.AesCbcHmacSha256, isClient: false);
+            using var crypto = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 1), CipherSuite.AesCbcHmacSha256, isClient: false);
             // flags byte says "not encrypted" — downgrade attempt must be dropped
             var forged = new byte[] { 0x00, 1, 2, 3 };
             Assert.Null(ChannelTransform.Decode(channel, crypto, forged, 0, forged.Length, 1 << 20, NullNetLogger.Instance, out _));

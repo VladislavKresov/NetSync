@@ -86,9 +86,10 @@ namespace NetSync.Tests {
 
         [Fact]
         public async Task A_Man_In_The_Middle_Swapping_The_Ecdh_Key_Is_Detected() {
-            // The attacker sits on the path and replaces the server's ECDH key in Welcome with
-            // its own (here: a corrupted one) — the classic attack on unauthenticated ECDH.
-            // The identity signature covers both ECDH keys, so the client notices.
+            // Someone on the path replaces the server's ephemeral key in Welcome with its own
+            // (here: a corrupted one) — the classic attack on an unauthenticated key exchange.
+            // The keys also depend on the server's identity, which the attacker doesn't hold:
+            // the two sides end up with different keys and the connection never opens.
             using var identity = NetIdentity.Generate();
             var network = new InMemoryNetwork();
             var serverConfig = Config(KeyExchangeMode.Ecdh, udp: false);
@@ -99,8 +100,8 @@ namespace NetSync.Tests {
 
             var clientConfig = Config(KeyExchangeMode.Ecdh, udp: false);
             clientConfig.TransportFactories[TransportType.Tcp] = new TamperingFactory(network.Factory, packet => {
-                if (packet.Length > 12 && packet[0] == PeerProtocol.MsgWelcome) {
-                    packet[11] ^= 0x5A; // first byte of the server's ECDH public key
+                if (packet.Length > 16 && packet[0] == PeerProtocol.MsgWelcome) {
+                    packet[15] ^= 0x5A; // first byte of the server's ephemeral public key
                 }
                 return packet;
             });

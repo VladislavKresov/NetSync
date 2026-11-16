@@ -29,11 +29,14 @@ namespace NetSync.Peers {
                 if (mode != KeyExchangeMode.None) {
                     session.OfferedSuites = CipherSuites.LocalMask;
                 }
-                if (mode == KeyExchangeMode.Ecdh) {
-                    session.Ecdh = EcdhKeyExchange.Create();
-                    session.ClientPublicKey = EcdhKeyExchange.ExportPublicKey(session.Ecdh);
+                if (mode != KeyExchangeMode.None) {
+                    session.EphemeralPrivateKey = new byte[X25519.KeySize];
+                    X25519.GeneratePrivateKey(session.EphemeralPrivateKey);
+                    session.ClientPublicKey = new byte[X25519.KeySize];
+                    X25519.PublicKey(session.EphemeralPrivateKey, session.ClientPublicKey);
                 }
-                var hello = PeerProtocol.EncodeHello(session.Token, _configHash, mode, session.OfferedSuites, session.ClientPublicKey, cookie: null);
+                var hello = PeerProtocol.EncodeHello(session.Token, _configHash, mode, session.OfferedSuites, session.ClientPublicKey, cookie: null,
+                                                     _config.AppIdHash, _config.AppProtocolVersion);
                 session.Hellos[(int)TransportType.Tcp] = hello;
                 session.Hellos[(int)TransportType.Udp] = hello;
 
@@ -300,37 +303,34 @@ namespace NetSync.Peers {
         }
 
         /// <summary>
-        /// First Welcome: check the server's choice of suite, verify its identity, derive the
+        /// First Welcome: check what the server chose, complete the key exchange, derive the
         /// session keys. Returns the reason to refuse the server, or null. Caller holds CryptoLock.
+        ///
+        /// A server identity is not proven here: it is mixed into the keys, so a server without
+        /// the private key ends up with different ones and the connection never opens
+        /// (see <see cref="KeysDifferRejection"/>).
         /// </summary>
         private ConnectionRejectedException? EstablishKeys(Session session, PeerProtocol.Welcome welcome) {
             if (!CipherSuites.IsOffered(session.OfferedSuites, welcome.Suite)) {
                 return new ConnectionRejectedException(ConnectionRejection.Encryption,
                     $"the server chose cipher suite {welcome.Suite}, which this client didn't offer");
             }
-            if (_config.Encryption.Mode == KeyExchangeMode.PresharedKey) {
-                session.Crypto = ConnectionCrypto.FromPresharedKey(_config.Encryption.PresharedKey!, session.Token, welcome.Suite, isClient: true);
-                session.Suite = welcome.Suite;
-                return null;
+            if ((welcome.Features & ~PeerProtocol.LocalFeatures) != 0) {
+                return new ConnectionRejectedException(ConnectionRejection.Encryption, "the server enabled features this client didn't offer");
+            }
+            var mode = _config.Encryption.Mode;
+            var ephemeral = session.EphemeralPrivateKey;
+            if (welcome.PublicKey.Length != X25519.KeySize || ephemeral == null || session.ClientPublicKey == null) {
+                return new ConnectionRejectedException(ConnectionRejection.Encryption, "the server's Welcome did not carry a valid key");
             }
 
-            // ECDH
-            if (welcome.PublicKey.Length != EcdhKeyExchange.PublicKeySize || session.Ecdh == null) {
-                return new ConnectionRejectedException(ConnectionRejection.Encryption, "the server's Welcome did not carry a valid ECDH key");
-            }
-            if (welcome.IdentityKey.Length > 0 || welcome.Signature.Length > 0) {
-                var transcript = PeerProtocol.IdentityTranscript(session.Token, _configHash, (byte)KeyExchangeMode.Ecdh, session.OfferedSuites,
-                                                                 welcome.Suite, session.ClientPublicKey, welcome.PublicKey);
-                if (!NetIdentity.IsSupported || !NetIdentity.Verify(welcome.IdentityKey, transcript, welcome.Signature)) {
-                    return new ConnectionRejectedException(ConnectionRejection.ServerIdentity,
-                        "the server's identity signature is invalid (possible man-in-the-middle)");
-                }
-                session.ServerIdentityKey = welcome.IdentityKey;
+            byte[]? presented = welcome.IdentityKey.Length > 0 ? welcome.IdentityKey : null;
+            if (presented != null && (mode != KeyExchangeMode.Ecdh || presented.Length != NetIdentity.PublicKeySize)) {
+                return new ConnectionRejectedException(ConnectionRejection.Encryption, "the server's Welcome carried an unexpected identity key");
             }
             var trusted = _config.Encryption.TrustedServerKeys;
             if (trusted.Count > 0) {
                 bool pinned = false;
-                var presented = session.ServerIdentityKey;
                 if (presented != null) {
                     foreach (var key in trusted) {
                         if (key.AsSpan().SequenceEqual(presented)) {
@@ -342,22 +342,64 @@ namespace NetSync.Peers {
                 if (!pinned) {
                     return new ConnectionRejectedException(ConnectionRejection.ServerIdentity,
                         presented == null
-                            ? "the server did not prove its identity, but TrustedServerKeys requires it (possible man-in-the-middle)"
+                            ? "the server did not present an identity, but TrustedServerKeys requires it (possible man-in-the-middle)"
                             : $"the server's identity {NetIdentity.GetFingerprint(presented)} is not in TrustedServerKeys (possible man-in-the-middle)");
                 }
             }
+
+            var ephemeralShared = new byte[X25519.KeySize];
+            var identityShared = Array.Empty<byte>();
             try {
-                var secret = EcdhKeyExchange.DeriveSessionSecret(session.Ecdh, welcome.PublicKey, session.Token);
-                session.Crypto = ConnectionCrypto.FromSecret(secret, welcome.Suite, isClient: true);
-                Array.Clear(secret, 0, secret.Length);
+                if (!X25519.TrySharedSecret(ephemeral, welcome.PublicKey, ephemeralShared)) {
+                    return new ConnectionRejectedException(ConnectionRejection.Encryption, "the server's key is unusable");
+                }
+                if (presented != null) {
+                    identityShared = new byte[X25519.KeySize];
+                    if (!X25519.TrySharedSecret(ephemeral, presented, identityShared)) {
+                        return new ConnectionRejectedException(ConnectionRejection.ServerIdentity, "the server's identity key is unusable");
+                    }
+                }
+                var presharedKey = mode == KeyExchangeMode.PresharedKey ? _config.Encryption.PresharedKey! : Array.Empty<byte>();
+                var transcript = HandshakeKeys.Transcript(session.Token, _configHash, (byte)mode, session.OfferedSuites, _config.AppIdHash,
+                                                          _config.AppProtocolVersion, PeerProtocol.LocalFeatures, session.ClientPublicKey,
+                                                          welcome.Suite, welcome.Features, welcome.PublicKey, presented ?? Array.Empty<byte>());
+                var secret = HandshakeKeys.SessionSecret(transcript, ephemeralShared, identityShared, presharedKey);
+                try {
+                    session.Crypto = ConnectionCrypto.FromSecret(secret, welcome.Suite, isClient: true);
+                }
+                finally {
+                    Array.Clear(secret, 0, secret.Length);
+                }
             }
             catch (Exception ex) when (ex is CryptographicException || ex is ArgumentException) {
-                return new ConnectionRejectedException(ConnectionRejection.Encryption, $"ECDH key derivation failed: {ex.Message}");
+                return new ConnectionRejectedException(ConnectionRejection.Encryption, $"key derivation failed: {ex.Message}");
             }
-            session.Ecdh.Dispose();
-            session.Ecdh = null;
+            finally {
+                Array.Clear(ephemeralShared, 0, ephemeralShared.Length);
+                Array.Clear(identityShared, 0, identityShared.Length);
+            }
+            ClearEphemeralKey(session);
+            session.ServerIdentityKey = presented;
             session.Suite = welcome.Suite;
             return null;
+        }
+
+        private static void ClearEphemeralKey(Session session) {
+            var key = session.EphemeralPrivateKey;
+            if (key != null) {
+                Array.Clear(key, 0, key.Length);
+                session.EphemeralPrivateKey = null;
+            }
+        }
+
+        /// <summary>Client and server derived different session keys: which secret was wrong depends on the mode.</summary>
+        private ConnectionRejectedException KeysDifferRejection(Session session) {
+            if (_config.Encryption.Mode == KeyExchangeMode.Ecdh && session.ServerIdentityKey != null) {
+                return new ConnectionRejectedException(ConnectionRejection.ServerIdentity,
+                    "the server could not prove the identity it presented (possible man-in-the-middle)");
+            }
+            return new ConnectionRejectedException(ConnectionRejection.Authentication,
+                "authentication failed: client and server derived different keys (different pre-shared keys?)");
         }
 
         private static ConnectionRejectedException RejectionFor(byte reason) {
@@ -371,6 +413,8 @@ namespace NetSync.Peers {
                     "(ids, transports, reliability, compression, encryption flags) and MaxMessageSize"),
                 PeerProtocol.RejectAuthenticationFailed => new ConnectionRejectedException(ConnectionRejection.Authentication,
                     "authentication failed: the server could not verify our packets (different pre-shared keys?)"),
+                PeerProtocol.RejectApplicationMismatch => new ConnectionRejectedException(ConnectionRejection.ApplicationMismatch,
+                    "the server runs another application or application protocol version (NetConfig.AppId / AppProtocolVersion)"),
                 _ => new ConnectionRejectedException(ConnectionRejection.Application, $"reason {reason}")
             };
         }

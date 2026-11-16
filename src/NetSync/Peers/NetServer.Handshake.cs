@@ -23,7 +23,8 @@ namespace NetSync.Peers {
             if (Volatile.Read(ref connection.Announced) == 1 || Interlocked.Exchange(ref connection.AuthRejectSent, 1) == 1) {
                 return;
             }
-            _logger.Warning($"{connection}: packets fail authentication — client and server keys differ (pre-shared key?)");
+            _logger.Warning($"{connection}: packets fail authentication — client and server derived different keys " +
+                            "(different pre-shared keys, or the client expects another server identity)");
             _ = SafeSendRawAsync(peer, PeerProtocol.EncodeReject(PeerProtocol.RejectAuthenticationFailed));
             _ = CloseAfterFlushAsync(connection, DisconnectReason.Error);
         }
@@ -46,11 +47,18 @@ namespace NetSync.Peers {
                 return;
             }
 
+            if (hello.AppId != _config.AppIdHash || hello.AppVersion != _config.AppProtocolVersion) {
+                _logger.Warning($"Rejecting {peer.EndPoint}: another application or application protocol version " +
+                                $"(client version {hello.AppVersion}, server {_config.AppProtocolVersion})");
+                _ = SafeSendRawAsync(peer, PeerProtocol.EncodeReject(PeerProtocol.RejectApplicationMismatch));
+                return;
+            }
+
             var mode = _config.Encryption.Mode;
             var suite = mode == KeyExchangeMode.None ? CipherSuite.None : CipherSuites.Choose(hello.Suites);
             bool keyExchangeOk = hello.KeyExchange == (byte)mode &&
                                  (mode == KeyExchangeMode.None || suite != CipherSuite.None) &&
-                                 (mode != KeyExchangeMode.Ecdh || hello.PublicKeyLength == EcdhKeyExchange.PublicKeySize);
+                                 (mode == KeyExchangeMode.None || hello.PublicKeyLength == X25519.KeySize);
             if (!keyExchangeOk) {
                 _logger.Warning($"Rejecting {peer.EndPoint}: encryption mismatch (client key exchange {hello.KeyExchange}, " +
                                 $"server {(byte)mode}, offered suites 0x{hello.Suites:X2})");
@@ -157,51 +165,64 @@ namespace NetSync.Peers {
         }
 
         /// <summary>
-        /// Builds a pending connection from its first Hello: keys (PSK or ECDH), the chosen
-        /// suite, and the Welcome every link will get — signed when the server has an identity.
+        /// Builds a pending connection from its first Hello: the server's half of the key
+        /// exchange, the session keys, the chosen suite, and the Welcome every link will get.
         /// Returns null when the client's key material is unusable.
         /// </summary>
         private NetConnection? CreateConnection(PeerProtocol.Hello hello, CipherSuite suite, byte[] buffer) {
             long id = Interlocked.Increment(ref _nextConnectionId);
             var connection = new NetConnection(this, id, hello.Token, NetTime.NowMs) { CipherSuite = suite };
+            uint features = hello.Features & PeerProtocol.LocalFeatures;
             byte[]? serverPublicKey = null;
             byte[]? identityKey = null;
-            byte[]? signature = null;
-            try {
-                switch (_config.Encryption.Mode) {
-                    case KeyExchangeMode.PresharedKey:
-                        connection.Crypto = ConnectionCrypto.FromPresharedKey(_config.Encryption.PresharedKey!, hello.Token, suite, isClient: false);
-                        break;
-
-                    case KeyExchangeMode.Ecdh: {
-                        var clientPublicKey = new ReadOnlySpan<byte>(buffer, hello.PublicKeyOffset, hello.PublicKeyLength).ToArray();
-                        using var ephemeral = EcdhKeyExchange.Create();
-                        serverPublicKey = EcdhKeyExchange.ExportPublicKey(ephemeral);
-                        var secret = EcdhKeyExchange.DeriveSessionSecret(ephemeral, clientPublicKey, hello.Token);
-                        try {
-                            connection.Crypto = ConnectionCrypto.FromSecret(secret, suite, isClient: false);
-                        }
-                        finally {
-                            Array.Clear(secret, 0, secret.Length);
-                        }
-                        connection.ClientPublicKey = clientPublicKey;
-                        var identity = _config.Encryption.ServerIdentity;
-                        if (identity != null) {
-                            var transcript = PeerProtocol.IdentityTranscript(hello.Token, hello.ConfigHash, hello.KeyExchange, hello.Suites,
-                                                                             suite, clientPublicKey, serverPublicKey);
-                            signature = identity.Sign(transcript);
-                            identityKey = identity.PublicKey;
-                        }
-                        break;
+            var mode = _config.Encryption.Mode;
+            if (mode != KeyExchangeMode.None) {
+                var clientPublicKey = new ReadOnlySpan<byte>(buffer, hello.PublicKeyOffset, hello.PublicKeyLength).ToArray();
+                var ephemeral = new byte[X25519.KeySize];
+                var ephemeralShared = new byte[X25519.KeySize];
+                var identityShared = Array.Empty<byte>();
+                try {
+                    X25519.GeneratePrivateKey(ephemeral);
+                    serverPublicKey = new byte[X25519.KeySize];
+                    X25519.PublicKey(ephemeral, serverPublicKey);
+                    if (!X25519.TrySharedSecret(ephemeral, clientPublicKey, ephemeralShared)) {
+                        _logger.Warning("Handshake key setup failed: the client's key is unusable");
+                        return null;
                     }
+                    var identity = mode == KeyExchangeMode.Ecdh ? _config.Encryption.ServerIdentity : null;
+                    if (identity != null) {
+                        identityShared = new byte[X25519.KeySize];
+                        if (!identity.TrySharedSecret(clientPublicKey, identityShared)) {
+                            _logger.Warning("Handshake key setup failed: the client's key is unusable");
+                            return null;
+                        }
+                        identityKey = identity.PublicKey;
+                    }
+                    var presharedKey = mode == KeyExchangeMode.PresharedKey ? _config.Encryption.PresharedKey! : Array.Empty<byte>();
+                    var transcript = HandshakeKeys.Transcript(hello.Token, hello.ConfigHash, hello.KeyExchange, hello.Suites, hello.AppId,
+                                                              hello.AppVersion, hello.Features, clientPublicKey, suite, features,
+                                                              serverPublicKey, identityKey ?? Array.Empty<byte>());
+                    var secret = HandshakeKeys.SessionSecret(transcript, ephemeralShared, identityShared, presharedKey);
+                    try {
+                        connection.Crypto = ConnectionCrypto.FromSecret(secret, suite, isClient: false);
+                    }
+                    finally {
+                        Array.Clear(secret, 0, secret.Length);
+                    }
+                    connection.ClientPublicKey = clientPublicKey;
+                }
+                catch (Exception ex) when (ex is CryptographicException || ex is ArgumentException || ex is ObjectDisposedException) {
+                    _logger.Warning($"Handshake key setup failed: {ex.Message}");
+                    connection.Crypto?.Dispose();
+                    return null;
+                }
+                finally {
+                    Array.Clear(ephemeral, 0, ephemeral.Length);
+                    Array.Clear(ephemeralShared, 0, ephemeralShared.Length);
+                    Array.Clear(identityShared, 0, identityShared.Length);
                 }
             }
-            catch (Exception ex) when (ex is CryptographicException || ex is ArgumentException) {
-                _logger.Warning($"Handshake key setup failed: {ex.Message}");
-                connection.Crypto?.Dispose();
-                return null;
-            }
-            connection.WelcomeMessage = PeerProtocol.EncodeWelcome(id, suite, serverPublicKey, identityKey, signature);
+            connection.WelcomeMessage = PeerProtocol.EncodeWelcome(id, suite, features, serverPublicKey, identityKey);
             return connection;
         }
 

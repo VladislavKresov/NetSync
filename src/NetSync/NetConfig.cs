@@ -32,12 +32,13 @@ namespace NetSync {
         /// <summary>No encryption keys; channels with Encryption=true are rejected.</summary>
         None = 0,
         /// <summary>
-        /// Both sides share a secret key out-of-band; per-connection keys are derived
-        /// from it and the session token. Simple and works everywhere.
+        /// Both sides share a secret key out-of-band. Every connection still runs an ephemeral
+        /// key exchange, so session keys are fresh each time and past sessions stay private
+        /// even if the shared key leaks later; the shared key is what authenticates the peers.
         /// </summary>
         PresharedKey = 1,
         /// <summary>
-        /// Ephemeral ECDH (P-256) during the handshake: no pre-shared secret needed.
+        /// Ephemeral key exchange (X25519) during the handshake: no pre-shared secret needed.
         /// Give the server a <see cref="EncryptionConfig.ServerIdentity"/> and pin its key on
         /// clients (<see cref="EncryptionConfig.TrustedServerKeys"/>) to stop an active
         /// man-in-the-middle; without pinning it only defeats passive eavesdropping.
@@ -132,6 +133,31 @@ namespace NetSync {
         public Dictionary<byte, ChannelConfig> Channels { get; } = new Dictionary<byte, ChannelConfig>();
 
         public EventDelivery EventDelivery { get; set; } = EventDelivery.Polled;
+
+        /// <summary>
+        /// Names the application. A server refuses clients whose AppId differs, so two
+        /// different applications that happen to reach each other (same port, same relay)
+        /// never connect. Empty = not checked beyond both sides leaving it empty.
+        /// </summary>
+        public string AppId { get; set; } = "";
+
+        /// <summary>
+        /// The application's own protocol version. A server refuses clients with another
+        /// value: raise it when a release can't talk to the previous one.
+        /// </summary>
+        public ushort AppProtocolVersion { get; set; }
+
+        /// <summary>What travels in the handshake for <see cref="AppId"/>: the first 8 bytes of its SHA-256 (0 when empty).</summary>
+        internal ulong AppIdHash {
+            get {
+                if (string.IsNullOrEmpty(AppId)) {
+                    return 0;
+                }
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(AppId));
+                return System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(hash);
+            }
+        }
 
         /// <summary>Keepalive ping period per transport link.</summary>
         public int PingIntervalMs { get; set; } = 1000;
@@ -312,11 +338,6 @@ namespace NetSync {
                     "A channel has Encryption enabled but NetConfig.Encryption.Mode is None. " +
                     "Set Mode to PresharedKey (with a key) or Ecdh.");
             }
-            if (Encryption.Mode == KeyExchangeMode.Ecdh && !Pipeline.Security.EcdhKeyExchange.IsSupported) {
-                throw new NotSupportedException(
-                    "KeyExchangeMode.Ecdh needs P-256 ECDiffieHellman, which this runtime doesn't provide " +
-                    "(some Mono/IL2CPP builds lack it). Use KeyExchangeMode.PresharedKey instead.");
-            }
             if (Encryption.Mode == KeyExchangeMode.PresharedKey &&
                 (Encryption.PresharedKey == null || Encryption.PresharedKey.Length < 16)) {
                 throw new InvalidOperationException(
@@ -325,7 +346,7 @@ namespace NetSync {
             bool usesIdentity = Encryption.ServerIdentity != null || Encryption.TrustedServerKeys.Count > 0;
             if (usesIdentity && Encryption.Mode != KeyExchangeMode.Ecdh) {
                 throw new InvalidOperationException(
-                    "ServerIdentity / TrustedServerKeys authenticate the ECDH key exchange: set Encryption.Mode to Ecdh " +
+                    "ServerIdentity / TrustedServerKeys authenticate the Ecdh key exchange: set Encryption.Mode to Ecdh " +
                     "(PresharedKey already authenticates both sides through the shared key).");
             }
             foreach (var key in Encryption.TrustedServerKeys) {
@@ -333,10 +354,6 @@ namespace NetSync {
                     throw new InvalidOperationException(
                         $"Every TrustedServerKeys entry must be a {NetIdentity.PublicKeySize}-byte NetIdentity.PublicKey.");
                 }
-            }
-            if (usesIdentity && !NetIdentity.IsSupported) {
-                throw new NotSupportedException(
-                    "Server identity needs ECDSA P-256, which this runtime doesn't provide. Use KeyExchangeMode.PresharedKey instead.");
             }
         }
 

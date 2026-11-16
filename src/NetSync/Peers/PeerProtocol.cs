@@ -7,13 +7,19 @@ namespace NetSync.Peers {
     /// Peer-level messages, carried inside transport Data payloads.
     ///
     /// Handshake (plaintext):
-    /// Hello      [0x01][ver=3][token:8][configHash:4][keyExchange:1][suites:1][pubLen:1][pub…][cookieLen:1][cookie…]
+    /// Hello      [0x01][ver=4][token:8][configHash:4][keyExchange:1][suites:1][appId:8][appVersion:2][features:4]
+    ///            [pubLen:1][pub…][cookieLen:1][cookie…][extLen:2][extensions…]
     ///             — client introduces itself on every link; the token groups the links into one
     ///               connection, configHash covers the channel table and MaxMessageSize, suites
-    ///               is the bitmask of cipher suites the client can run.
-    /// Welcome    [0x02][connectionId:8][suite:1][pubLen:1][pub…][idLen:1][identityKey…][sigLen:1][signature…]
-    ///             — server bound the link; ECDH public key, and when the server has an identity
-    ///               its public key plus a signature over the handshake transcript.
+    ///               is the bitmask of cipher suites the client can run, pub its ephemeral
+    ///               X25519 key (keyed modes).
+    /// Welcome    [0x02][connectionId:8][suite:1][features:4][pubLen:1][pub…][idLen:1][identityKey…][extLen:2][extensions…]
+    ///             — server bound the link; its ephemeral X25519 key, the features both sides
+    ///               support, and its long-term public key when it has an identity.
+    ///
+    /// Growing without a new version: features is a bitmask (the server answers with the
+    /// bits both sides know), extensions a block of [type:1][length:2][value] entries.
+    /// A receiver ignores feature bits and extension types it does not know.
     /// Reject     [0x03][reason:1]                   — handshake refused (version/encryption/config/auth).
     /// Retry      [0x06][cookie:16]                  — UDP-only servers: prove your address, resend Hello with this cookie.
     ///
@@ -31,7 +37,7 @@ namespace NetSync.Peers {
     /// Secure     [0x40][counter:8][tag:16][inner…]  — authenticated envelope (see LinkSecurity).
     /// </summary>
     internal static class PeerProtocol {
-        public const byte ProtocolVersion = 3;
+        public const byte ProtocolVersion = 4;
 
         public const byte MsgHello = 0x01;
         public const byte MsgWelcome = 0x02;
@@ -65,6 +71,11 @@ namespace NetSync.Peers {
         public const byte RejectConfigMismatch = 3;
         /// <summary>The server can't verify the client's envelopes: the keys differ (wrong PSK).</summary>
         public const byte RejectAuthenticationFailed = 4;
+        /// <summary>The client belongs to another application or application protocol version.</summary>
+        public const byte RejectApplicationMismatch = 5;
+
+        /// <summary>Feature bits this build understands (none are defined yet).</summary>
+        public const uint LocalFeatures = 0;
 
         public const byte ByeGraceful = 0;   // client leaving / server shutting down
         public const byte ByeKicked = 1;     // server removed this client on purpose
@@ -77,18 +88,24 @@ namespace NetSync.Peers {
             public readonly uint ConfigHash;
             public readonly byte KeyExchange;
             public readonly byte Suites;
+            public readonly ulong AppId;
+            public readonly ushort AppVersion;
+            public readonly uint Features;
             public readonly int PublicKeyOffset;
             public readonly int PublicKeyLength;
             public readonly int CookieOffset;
             public readonly int CookieLength;
 
-            public Hello(byte version, long token, uint configHash, byte keyExchange, byte suites,
-                         int publicKeyOffset, int publicKeyLength, int cookieOffset, int cookieLength) {
+            public Hello(byte version, long token, uint configHash, byte keyExchange, byte suites, ulong appId, ushort appVersion,
+                         uint features, int publicKeyOffset, int publicKeyLength, int cookieOffset, int cookieLength) {
                 Version = version;
                 Token = token;
                 ConfigHash = configHash;
                 KeyExchange = keyExchange;
                 Suites = suites;
+                AppId = appId;
+                AppVersion = appVersion;
+                Features = features;
                 PublicKeyOffset = publicKeyOffset;
                 PublicKeyLength = publicKeyLength;
                 CookieOffset = cookieOffset;
@@ -96,23 +113,28 @@ namespace NetSync.Peers {
             }
         }
 
-        private const int HelloFixedSize = 17; // type..pubLen
+        private const int HelloFixedSize = 31; // type..pubLen
 
         public static byte[] EncodeHello(long token, uint configHash, KeyExchangeMode keyExchange, byte suites,
-                                         byte[]? publicKey, byte[]? cookie) {
+                                         byte[]? publicKey, byte[]? cookie, ulong appId = 0, ushort appVersion = 0,
+                                         uint features = LocalFeatures) {
             int keyLength = publicKey?.Length ?? 0;
             int cookieLength = cookie?.Length ?? 0;
-            var buf = new byte[HelloFixedSize + keyLength + 1 + cookieLength];
+            var buf = new byte[HelloFixedSize + keyLength + 1 + cookieLength + 2];
             buf[0] = MsgHello;
             buf[1] = ProtocolVersion;
             BinaryPrimitives.WriteInt64BigEndian(buf.AsSpan(2), token);
             BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(10), configHash);
             buf[14] = (byte)keyExchange;
             buf[15] = suites;
-            buf[16] = (byte)keyLength;
+            BinaryPrimitives.WriteUInt64BigEndian(buf.AsSpan(16), appId);
+            BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(24), appVersion);
+            BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(26), features);
+            buf[30] = (byte)keyLength;
             publicKey?.CopyTo(buf.AsSpan(HelloFixedSize));
             buf[HelloFixedSize + keyLength] = (byte)cookieLength;
             cookie?.CopyTo(buf.AsSpan(HelloFixedSize + keyLength + 1));
+            // The last two bytes are the length of the extension block: empty.
             return buf;
         }
 
@@ -124,22 +146,38 @@ namespace NetSync.Peers {
 
         public static bool TryParseHello(byte[] buffer, int offset, int count, out Hello hello) {
             hello = default;
-            if (count < HelloFixedSize + 1) {
+            if (count < HelloFixedSize + 1 + 2) {
                 return false;
             }
             var span = new ReadOnlySpan<byte>(buffer, offset, count);
-            int keyLength = span[16];
+            int keyLength = span[30];
             int cookieLengthAt = HelloFixedSize + keyLength;
             if (count < cookieLengthAt + 1) {
                 return false;
             }
             int cookieLength = span[cookieLengthAt];
-            if (count < cookieLengthAt + 1 + cookieLength) {
+            int extensionsAt = cookieLengthAt + 1 + cookieLength;
+            if (!ExtensionsWellFormed(span, extensionsAt)) {
                 return false;
             }
             hello = new Hello(span[1], BinaryPrimitives.ReadInt64BigEndian(span.Slice(2)), BinaryPrimitives.ReadUInt32BigEndian(span.Slice(10)),
-                              span[14], span[15], offset + HelloFixedSize, keyLength, offset + cookieLengthAt + 1, cookieLength);
+                              span[14], span[15], BinaryPrimitives.ReadUInt64BigEndian(span.Slice(16)),
+                              BinaryPrimitives.ReadUInt16BigEndian(span.Slice(24)), BinaryPrimitives.ReadUInt32BigEndian(span.Slice(26)),
+                              offset + HelloFixedSize, keyLength, offset + cookieLengthAt + 1, cookieLength);
             return true;
+        }
+
+        /// <summary>
+        /// The extension block [length:2][entries…] must fit the message; its entries
+        /// ([type:1][length:2][value]) are skipped — none are defined yet, and unknown ones
+        /// are ignored by design.
+        /// </summary>
+        private static bool ExtensionsWellFormed(ReadOnlySpan<byte> message, int at) {
+            if (at + 2 > message.Length) {
+                return false;
+            }
+            int length = BinaryPrimitives.ReadUInt16BigEndian(message.Slice(at));
+            return at + 2 + length <= message.Length;
         }
 
         // ---------------------------------------------------------------- Welcome
@@ -147,50 +185,52 @@ namespace NetSync.Peers {
         internal readonly struct Welcome {
             public readonly long ConnectionId;
             public readonly CipherSuite Suite;
+            public readonly uint Features;
             public readonly byte[] PublicKey;
             public readonly byte[] IdentityKey;
-            public readonly byte[] Signature;
 
-            public Welcome(long connectionId, CipherSuite suite, byte[] publicKey, byte[] identityKey, byte[] signature) {
+            public Welcome(long connectionId, CipherSuite suite, uint features, byte[] publicKey, byte[] identityKey) {
                 ConnectionId = connectionId;
                 Suite = suite;
+                Features = features;
                 PublicKey = publicKey;
                 IdentityKey = identityKey;
-                Signature = signature;
             }
         }
 
-        public static byte[] EncodeWelcome(long connectionId, CipherSuite suite, byte[]? publicKey, byte[]? identityKey, byte[]? signature) {
+        public static byte[] EncodeWelcome(long connectionId, CipherSuite suite, uint features, byte[]? publicKey, byte[]? identityKey) {
             int keyLength = publicKey?.Length ?? 0;
             int idLength = identityKey?.Length ?? 0;
-            int sigLength = signature?.Length ?? 0;
-            var buf = new byte[1 + 8 + 1 + 1 + keyLength + 1 + idLength + 1 + sigLength];
+            var buf = new byte[1 + 8 + 1 + 4 + 1 + keyLength + 1 + idLength + 2];
             int at = 0;
             buf[at++] = MsgWelcome;
             BinaryPrimitives.WriteInt64BigEndian(buf.AsSpan(at), connectionId);
             at += 8;
             buf[at++] = (byte)suite;
+            BinaryPrimitives.WriteUInt32BigEndian(buf.AsSpan(at), features);
+            at += 4;
             at = WriteBlock(buf, at, publicKey);
-            at = WriteBlock(buf, at, identityKey);
-            WriteBlock(buf, at, signature);
+            WriteBlock(buf, at, identityKey);
+            // The last two bytes are the length of the extension block: empty.
             return buf;
         }
 
         public static bool TryParseWelcome(byte[] buffer, int offset, int count, out Welcome welcome) {
             welcome = default;
             var span = new ReadOnlySpan<byte>(buffer, offset, count);
-            if (span.Length < 1 + 8 + 1 + 3) {
+            if (span.Length < 1 + 8 + 1 + 4 + 2 + 2) {
                 return false;
             }
             long connectionId = BinaryPrimitives.ReadInt64BigEndian(span.Slice(1));
             var suite = (CipherSuite)span[9];
-            int at = 10;
+            uint features = BinaryPrimitives.ReadUInt32BigEndian(span.Slice(10));
+            int at = 14;
             if (!TryReadBlock(span, ref at, out var publicKey) ||
                 !TryReadBlock(span, ref at, out var identityKey) ||
-                !TryReadBlock(span, ref at, out var signature)) {
+                !ExtensionsWellFormed(span, at)) {
                 return false;
             }
-            welcome = new Welcome(connectionId, suite, publicKey, identityKey, signature);
+            welcome = new Welcome(connectionId, suite, features, publicKey, identityKey);
             return true;
         }
 
@@ -213,33 +253,6 @@ namespace NetSync.Peers {
             block = span.Slice(at, length).ToArray();
             at += length;
             return true;
-        }
-
-        /// <summary>
-        /// What the server's identity signs: everything that shapes the session keys, so a
-        /// man-in-the-middle can neither swap the ECDH keys nor downgrade the cipher suite.
-        /// </summary>
-        public static byte[] IdentityTranscript(long token, uint configHash, byte keyExchange, byte offeredSuites,
-                                                CipherSuite chosenSuite, ReadOnlySpan<byte> clientPublicKey,
-                                                ReadOnlySpan<byte> serverPublicKey) {
-            var label = Encoding.ASCII.GetBytes("NetSync/3 server identity");
-            var transcript = new byte[label.Length + 8 + 4 + 3 + 1 + clientPublicKey.Length + 1 + serverPublicKey.Length];
-            int at = 0;
-            label.CopyTo(transcript, at);
-            at += label.Length;
-            BinaryPrimitives.WriteInt64BigEndian(transcript.AsSpan(at), token);
-            at += 8;
-            BinaryPrimitives.WriteUInt32BigEndian(transcript.AsSpan(at), configHash);
-            at += 4;
-            transcript[at++] = keyExchange;
-            transcript[at++] = offeredSuites;
-            transcript[at++] = (byte)chosenSuite;
-            transcript[at++] = (byte)clientPublicKey.Length;
-            clientPublicKey.CopyTo(transcript.AsSpan(at));
-            at += clientPublicKey.Length;
-            transcript[at++] = (byte)serverPublicKey.Length;
-            serverPublicKey.CopyTo(transcript.AsSpan(at));
-            return transcript;
         }
 
         // ------------------------------------------------------------- the rest

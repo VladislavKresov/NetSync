@@ -18,6 +18,14 @@ namespace NetSync.Tests {
         }
     }
 
+    internal static class TestKeys {
+        /// <summary>A session secret for tests of the layers below the handshake: fixed by key and number.</summary>
+        public static byte[] Secret(byte[] key, long number) {
+            using var hmac = new System.Security.Cryptography.HMACSHA256(key);
+            return hmac.ComputeHash(BitConverter.GetBytes(number));
+        }
+    }
+
     internal static class TestUdp {
         /// <summary>
         /// Sends a raw datagram until a reply arrives. Loopback UDP does drop datagrams when a

@@ -243,9 +243,9 @@ namespace NetSync.Tests {
         }
 
         [Fact]
-        public void Ecdh_Is_Available_On_This_Runtime() {
-            // The probe guards Unity/Mono runtimes that lack P-256; on .NET 8 it must pass.
-            Assert.True(Pipeline.Security.EcdhKeyExchange.IsSupported);
+        public void Identities_Are_Available_On_Every_Runtime() {
+            // The key exchange is the library's own code: nothing to probe for.
+            Assert.True(NetIdentity.IsSupported);
         }
 
         private static async Task<T> WithTimeout<T>(Task<T> task, int timeoutMs = 5000) {

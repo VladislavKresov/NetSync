@@ -41,7 +41,7 @@ namespace NetSync.Peers {
             /// <summary>Packet authenticator per link slot (encrypted connections only).</summary>
             public readonly LinkSecurity?[] Security = new LinkSecurity?[2];
             public ConnectionCrypto? Crypto;
-            public ECDiffieHellman? Ecdh; // ephemeral, gone after key derivation
+            public byte[]? EphemeralPrivateKey; // gone after key derivation
             public byte[]? ClientPublicKey;
             public byte OfferedSuites;
             public CipherSuite Suite;
@@ -356,10 +356,17 @@ namespace NetSync.Peers {
             bool handshakeMessage = first == PeerProtocol.MsgWelcome || first == PeerProtocol.MsgReject || first == PeerProtocol.MsgRetry;
             if (_config.Encryption.Mode != KeyExchangeMode.None && !handshakeMessage) {
                 // Encrypted connection: after the handshake only authenticated envelopes count.
-                if (first != PeerProtocol.MsgSecure ||
-                    Volatile.Read(ref session.Security[(int)type]) is not { } security ||
-                    !security.TryUnwrap(buffer, offset, count, out offset, out count)) {
-                    return; // forged, replayed, tampered or unauthenticated: drop silently
+                if (first != PeerProtocol.MsgSecure || Volatile.Read(ref session.Security[(int)type]) is not { } security) {
+                    return; // unauthenticated: drop silently
+                }
+                var unwrapped = security.Unwrap(buffer, offset, count, out offset, out count);
+                if (unwrapped != LinkSecurity.UnwrapResult.Ok) {
+                    if (unwrapped == LinkSecurity.UnwrapResult.BadTag && Volatile.Read(ref session.Established) == 0) {
+                        // While connecting, the server's packets can only fail to verify when the
+                        // two sides derived different keys: say why instead of timing out.
+                        FailConnect(session, KeysDifferRejection(session));
+                    }
+                    return; // forged, replayed or tampered: drop silently
                 }
                 byte inner = buffer[offset];
                 if (inner == PeerProtocol.MsgWelcome || inner == PeerProtocol.MsgReject ||
@@ -378,13 +385,15 @@ namespace NetSync.Peers {
                         // UDP-only server asks us to prove our address: echo its cookie.
                         session.Hellos[(int)type] = PeerProtocol.EncodeHello(
                             session.Token, _configHash, _config.Encryption.Mode, session.OfferedSuites, session.ClientPublicKey,
-                            new ReadOnlySpan<byte>(buffer, offset + 1, PeerProtocol.CookieSize).ToArray());
+                            new ReadOnlySpan<byte>(buffer, offset + 1, PeerProtocol.CookieSize).ToArray(),
+                            _config.AppIdHash, _config.AppProtocolVersion);
                     }
                     break;
 
                 case PeerProtocol.MsgReject:
                     if (Volatile.Read(ref session.Established) == 0) { // plaintext: only believed while connecting
-                        FailConnect(session, RejectionFor(count > 1 ? buffer[offset + 1] : (byte)0));
+                        byte reason = count > 1 ? buffer[offset + 1] : (byte)0;
+                        FailConnect(session, reason == PeerProtocol.RejectAuthenticationFailed ? KeysDifferRejection(session) : RejectionFor(reason));
                     }
                     break;
 
@@ -538,8 +547,7 @@ namespace NetSync.Peers {
             session.Reliable?.Dispose();
             lock (session.CryptoLock) {
                 session.Crypto?.Dispose();
-                session.Ecdh?.Dispose();
-                session.Ecdh = null;
+                ClearEphemeralKey(session);
             }
             foreach (var security in session.Security) {
                 security?.Dispose();

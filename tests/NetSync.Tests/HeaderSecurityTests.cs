@@ -26,8 +26,8 @@ namespace NetSync.Tests {
 
         private static (LinkSecurity client, LinkSecurity server) Pair(TransportType slot = TransportType.Udp,
                                                                        CipherSuite suite = CipherSuite.AesCbcHmacSha256) {
-            var clientCrypto = ConnectionCrypto.FromPresharedKey(Psk, 99, suite, isClient: true);
-            var serverCrypto = ConnectionCrypto.FromPresharedKey(Psk, 99, suite, isClient: false);
+            var clientCrypto = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 99), suite, isClient: true);
+            var serverCrypto = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 99), suite, isClient: false);
             return (clientCrypto.CreateLinkSecurity(slot), serverCrypto.CreateLinkSecurity(slot));
         }
 
@@ -85,7 +85,7 @@ namespace NetSync.Tests {
 
             Assert.Null(Open(tcpServer, (byte[])envelope.Clone()));   // UDP packet replayed onto TCP
             var (_, otherClientReceiver) = Pair(TransportType.Udp, suite);
-            var reflectedReceiver = ConnectionCrypto.FromPresharedKey(Psk, 99, suite, isClient: true).CreateLinkSecurity(TransportType.Udp);
+            var reflectedReceiver = ConnectionCrypto.FromSecret(TestKeys.Secret(Psk, 99), suite, isClient: true).CreateLinkSecurity(TransportType.Udp);
             Assert.Null(Open(reflectedReceiver, (byte[])envelope.Clone())); // client's packet reflected back to a client
             Assert.NotNull(Open(udpServer, envelope));
             _ = otherClientReceiver;
