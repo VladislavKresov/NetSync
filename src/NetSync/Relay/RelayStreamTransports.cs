@@ -67,7 +67,7 @@ namespace NetSync.Relay {
             }
             var framed = new FramedConnection(client, _logger);
             try {
-                framed.TrySend(RelayProtocol.ClientHello, RelayProtocol.EncodeRoom(_room.RoomId), ReadOnlySpan<byte>.Empty, SendPriority.High);
+                framed.TrySend(RelayProtocol.ClientHello, RelayProtocol.EncodeHello(_room.RoomId, accessKey: null), ReadOnlySpan<byte>.Empty, SendPriority.High);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(10_000);
                 using var abort = timeout.Token.Register(framed.Dispose);

@@ -58,7 +58,7 @@ namespace NetSync.Relay {
             _logger = logger;
         }
 
-        public static async Task<RelayHostSession> ConnectAsync(IPEndPoint relay, string room, INetLogger logger, CancellationToken ct) {
+        public static async Task<RelayHostSession> ConnectAsync(IPEndPoint relay, string room, string? accessKey, INetLogger logger, CancellationToken ct) {
             var client = new TcpClient(relay.AddressFamily);
             try {
                 await Transports.TcpConnect.ConnectAsync(client, relay, ct).ConfigureAwait(false);
@@ -69,7 +69,7 @@ namespace NetSync.Relay {
             }
             var connection = new FramedConnection(client, logger);
             try {
-                connection.TrySend(RelayProtocol.HostHello, RelayProtocol.EncodeRoom(room), ReadOnlySpan<byte>.Empty, SendPriority.High);
+                connection.TrySend(RelayProtocol.HostHello, RelayProtocol.EncodeHello(room, accessKey), ReadOnlySpan<byte>.Empty, SendPriority.High);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeout.CancelAfter(10_000);
                 using var abort = timeout.Token.Register(connection.Dispose);

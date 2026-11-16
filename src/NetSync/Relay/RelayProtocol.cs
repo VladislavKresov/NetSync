@@ -11,9 +11,11 @@ namespace NetSync.Relay {
     /// exchange configured they are authenticated envelopes it can't read or forge.
     ///
     /// TCP frames: [kind:1][bodyLength:4 BE][body]
-    ///   HostHello     0x01 [roomLen:1][room]          host claims a room
+    ///   HostHello     0x01 [hello]                    host claims a room
     ///   HostWelcome   0x02 [secret:16]                room is yours; the secret authorizes your UDP side
-    ///   ClientHello   0x03 [roomLen:1][room]          client joins a room's stream side
+    ///   ClientHello   0x03 [hello]                    client joins a room's stream side
+    ///   hello = [version:1][features:4][roomLen:1][room][keyLen:1][accessKey]; bytes after it are
+    ///   ignored, so later versions can append fields. A relay refuses a version it doesn't speak.
     ///   ClientWelcome 0x04 []
     ///   Refused       0x05 [reason utf8]
     ///   Data          0x10 [message]                  client ⇄ relay
@@ -23,9 +25,9 @@ namespace NetSync.Relay {
     ///   Keepalive     0x14 []
     ///
     /// UDP datagrams: [kind:1][...]
-    ///   HostRegister     0x80 [roomLen][room][secret:16]     host → relay (repeated: keeps NAT mappings)
+    ///   HostRegister     0x80 [version:1][roomLen][room][secret:16]   host → relay (repeated: keeps NAT mappings)
     ///   HostRegistered   0x81 []
-    ///   ClientRegister   0x82 [roomLen][room][nonce:8]       client → relay
+    ///   ClientRegister   0x82 [version:1][roomLen][room][nonce:8]     client → relay
     ///   ClientRegistered 0x83 [clientId:4][hostEndpoint]     relay → client (endpoint empty: no direct path)
     ///   Introduce        0x84 [clientId:4][nonce:8][endpoint] relay → host: punch towards this client
     ///   RelayData        0x85 client→relay [clientId:4][nonce:8][message]; relay→host [clientId:4][message];
@@ -60,6 +62,46 @@ namespace NetSync.Relay {
         public const int SecretSize = 16;
         public const int NonceSize = 8;
         public const int MaxRoomBytes = 64;
+        public const int MaxAccessKeyBytes = 64;
+
+        /// <summary>Version of the relay protocol itself: a relay outlives the applications that use it.</summary>
+        public const byte Version = 1;
+        /// <summary>Feature bits this build understands (none are defined yet).</summary>
+        public const uint LocalFeatures = 0;
+        /// <summary>Largest hello body a relay reads.</summary>
+        public const int MaxHelloBytes = 1 + 4 + 1 + MaxRoomBytes + 1 + MaxAccessKeyBytes + 64;
+
+        /// <summary>The body of HostHello / ClientHello.</summary>
+        public static byte[] EncodeHello(string room, string? accessKey) {
+            var roomBlock = EncodeRoom(room);
+            var key = Encoding.UTF8.GetBytes(accessKey ?? string.Empty);
+            if (key.Length > MaxAccessKeyBytes) {
+                throw new ArgumentException($"A relay access key is at most {MaxAccessKeyBytes} UTF-8 bytes", nameof(accessKey));
+            }
+            var hello = new byte[1 + 4 + roomBlock.Length + 1 + key.Length];
+            hello[0] = Version;
+            BinaryPrimitives.WriteUInt32BigEndian(hello.AsSpan(1), LocalFeatures);
+            roomBlock.CopyTo(hello, 5);
+            hello[5 + roomBlock.Length] = (byte)key.Length;
+            key.CopyTo(hello, 5 + roomBlock.Length + 1);
+            return hello;
+        }
+
+        /// <summary>Reads a hello body; the version is returned even when the rest can't be understood.</summary>
+        public static bool TryReadHello(ReadOnlySpan<byte> body, out byte version, out string room, out byte[] accessKey) {
+            version = body.Length > 0 ? body[0] : (byte)0;
+            room = string.Empty;
+            accessKey = Array.Empty<byte>();
+            if (body.Length < 5 || !TryReadRoom(body.Slice(5), out room, out int used)) {
+                return false;
+            }
+            int at = 5 + used;
+            if (at >= body.Length || body[at] > MaxAccessKeyBytes || at + 1 + body[at] > body.Length) {
+                return false;
+            }
+            accessKey = body.Slice(at + 1, body[at]).ToArray();
+            return true;
+        }
         /// <summary>Largest frame body: a full NetSync message plus the client id.</summary>
         public const int MaxFrameBody = Transports.MessageLink.MaxMessage + 16;
 

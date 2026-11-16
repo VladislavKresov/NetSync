@@ -90,10 +90,11 @@ namespace NetSync.Relay {
             receiveThread.Start();
 
             var room = RelayProtocol.EncodeRoom(_room.RoomId);
-            var register = new byte[1 + room.Length + RelayProtocol.NonceSize];
+            var register = new byte[2 + room.Length + RelayProtocol.NonceSize];
             register[0] = RelayProtocol.ClientRegister;
-            room.CopyTo(register, 1);
-            connection.Nonce.CopyTo(register, 1 + room.Length);
+            register[1] = RelayProtocol.Version;
+            room.CopyTo(register, 2);
+            connection.Nonce.CopyTo(register, 2 + room.Length);
             long deadline = NetTime.NowMs + RegisterTimeoutMs;
             try {
                 while (!connection.Registered.Task.IsCompleted) {
@@ -441,10 +442,11 @@ namespace NetSync.Relay {
 
         private byte[] BuildRegister(RelayHostSession session) {
             var room = RelayProtocol.EncodeRoom(_room.RoomId);
-            var register = new byte[1 + room.Length + RelayProtocol.SecretSize];
+            var register = new byte[2 + room.Length + RelayProtocol.SecretSize];
             register[0] = RelayProtocol.HostRegister;
-            room.CopyTo(register, 1);
-            session.Secret.CopyTo(register, 1 + room.Length);
+            register[1] = RelayProtocol.Version;
+            room.CopyTo(register, 2);
+            session.Secret.CopyTo(register, 2 + room.Length);
             return register;
         }
 

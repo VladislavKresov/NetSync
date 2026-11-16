@@ -73,6 +73,9 @@ namespace NetSync.Relay {
         /// <summary>Try a direct (hole-punched) UDP path; false = always through the relay.</summary>
         public bool AllowDirect { get; set; } = true;
 
+        /// <summary>Hosts only: the key of a relay that restricts who may open rooms (<see cref="NetRelayServer.AccessKey"/>).</summary>
+        public string? AccessKey { get; set; }
+
         /// <summary>Stream slot (<see cref="TransportType.Tcp"/>) through the relay.</summary>
         public ITransportFactory Tcp { get; }
 
@@ -105,7 +108,7 @@ namespace NetSync.Relay {
         }
 
         private async Task<RelayHostSession> ConnectHostAsync(INetLogger logger, CancellationToken ct) {
-            var session = await RelayHostSession.ConnectAsync(RequireRelayEndPoint(), RoomId, logger, ct).ConfigureAwait(false);
+            var session = await RelayHostSession.ConnectAsync(RequireRelayEndPoint(), RoomId, AccessKey, logger, ct).ConfigureAwait(false);
             session.OnClosed(() => OnHostSessionLost(session, logger));
             return session;
         }
@@ -135,7 +138,7 @@ namespace NetSync.Relay {
                 }
                 RelayHostSession session;
                 try {
-                    session = await RelayHostSession.ConnectAsync(RequireRelayEndPoint(), RoomId, logger, CancellationToken.None).ConfigureAwait(false);
+                    session = await RelayHostSession.ConnectAsync(RequireRelayEndPoint(), RoomId, AccessKey, logger, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch (Exception ex) {
                     delayMs = Math.Min(delayMs * 2, MaxReconnectDelayMs);

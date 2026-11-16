@@ -302,6 +302,55 @@ namespace NetSync.Tests {
         }
 
         [Fact]
+        public async Task A_Relay_With_An_Access_Key_Only_Lets_Its_Own_Hosts_Open_Rooms() {
+            using var relay = new NetRelayServer { AccessKey = "only-my-game" };
+            var relayEndPoint = new IPEndPoint(IPAddress.Loopback, await relay.StartAsync(0));
+
+            using var stranger = new NetServer(Config());
+            var strangerRoom = new RelayRoom("ROOM-A") { RelayEndPoint = relayEndPoint };
+            stranger.AddListener(TransportType.Tcp, strangerRoom.Tcp, 0);
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => stranger.StartAsync(0));
+            Assert.Contains("access key", ex.Message);
+            Assert.Equal(0, relay.RoomCount);
+
+            using var host = new NetServer(Config());
+            host.MessageReceived += (connection, channel, data) => _ = connection.SendAsync(channel, data);
+            var hostRoom = new RelayRoom("ROOM-A") { RelayEndPoint = relayEndPoint, AccessKey = "only-my-game", AllowDirect = false };
+            host.AddListener(TransportType.Tcp, hostRoom.Tcp, 0);
+            host.AddListener(TransportType.Udp, hostRoom.Udp, 0);
+            await host.StartAsync(0);
+            Assert.Equal(1, relay.RoomCount);
+
+            // Clients need the room code, not the key.
+            var clientConfig = Config();
+            var clientRoom = new RelayRoom("ROOM-A") { AllowDirect = false };
+            clientConfig.TransportFactories[TransportType.Tcp] = clientRoom.Tcp;
+            clientConfig.TransportFactories[TransportType.Udp] = clientRoom.Udp;
+            using var client = new NetClient(clientConfig);
+            await client.ConnectAsync(relayEndPoint);
+            await EchoAllChannelsAsync(client);
+        }
+
+        [Fact]
+        public async Task A_Relay_Refuses_Another_Protocol_Version_With_A_Reason() {
+            using var relay = new NetRelayServer();
+            int port = await relay.StartAsync(0);
+            using var raw = new TcpClient();
+            await raw.ConnectAsync(IPAddress.Loopback, port);
+            var hello = RelayProtocol.EncodeHello("ROOM-B", null);
+            hello[0] = 99; // a version from the future
+            await raw.GetStream().WriteAsync(RelayProtocol.Frame(RelayProtocol.HostHello, hello));
+
+            var header = new byte[RelayProtocol.FrameHeaderSize];
+            await raw.GetStream().ReadExactlyAsync(header);
+            Assert.Equal(RelayProtocol.Refused, header[0]);
+            var body = new byte[System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(1))];
+            await raw.GetStream().ReadExactlyAsync(body);
+            Assert.Contains("version 99", System.Text.Encoding.UTF8.GetString(body));
+            Assert.Equal(0, relay.RoomCount);
+        }
+
+        [Fact]
         public async Task Unknown_Rooms_And_Taken_Rooms_Are_Refused() {
             using var relay = new NetRelayServer();
             int port = await relay.StartAsync(0);

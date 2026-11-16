@@ -77,6 +77,13 @@ namespace NetSync.Relay {
         /// <summary>Most rooms at once.</summary>
         public int MaxRooms { get; set; } = 10_000;
 
+        /// <summary>
+        /// When set, only hosts that present this key (<see cref="RelayRoom.AccessKey"/>) may open
+        /// rooms: the relay serves your application instead of anyone who finds it. Clients
+        /// don't need it — they need a room code. Null or empty = open to every host.
+        /// </summary>
+        public string? AccessKey { get; set; }
+
         /// <summary>Most clients per room (stream and datagram sides counted separately).</summary>
         public int MaxClientsPerRoom { get; set; } = 1024;
 
@@ -137,12 +144,26 @@ namespace NetSync.Relay {
                 using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct)) {
                     timeout.CancelAfter(10_000);
                     using var abort = timeout.Token.Register(connection.Dispose); // a silent client can't hold a socket
-                    hello = await connection.ReadOneAsync(1 + RelayProtocol.MaxRoomBytes, timeout.Token).ConfigureAwait(false);
+                    hello = await connection.ReadOneAsync(RelayProtocol.MaxHelloBytes, timeout.Token).ConfigureAwait(false);
                 }
-                if (!hello.ok || !RelayProtocol.TryReadRoom(hello.body, out var roomId, out _)) {
+                if (!hello.ok || (hello.kind != RelayProtocol.HostHello && hello.kind != RelayProtocol.ClientHello)) {
+                    return;
+                }
+                bool understood = RelayProtocol.TryReadHello(hello.body, out byte version, out var roomId, out var presentedKey);
+                if (version != RelayProtocol.Version) {
+                    await RefuseAsync(connection, $"relay protocol version {version}, this relay speaks {RelayProtocol.Version}").ConfigureAwait(false);
+                    return;
+                }
+                if (!understood) {
                     return;
                 }
                 if (hello.kind == RelayProtocol.HostHello) {
+                    var required = System.Text.Encoding.UTF8.GetBytes(AccessKey ?? string.Empty);
+                    if (required.Length > 0 && !Pipeline.Security.ConnectionCrypto.FixedTimeEquals(required, presentedKey)) {
+                        _logger.Warning($"Relay: {endPoint} tried to host room '{roomId}' without the access key");
+                        await RefuseAsync(connection, "this relay requires an access key to host rooms").ConfigureAwait(false);
+                        return;
+                    }
                     await ServeHostAsync(connection, roomId, endPoint, ct).ConfigureAwait(false);
                 }
                 else if (hello.kind == RelayProtocol.ClientHello) {
@@ -303,6 +324,10 @@ namespace NetSync.Relay {
             var span = new ReadOnlySpan<byte>(buffer, 1, received - 1);
             switch (buffer[0]) {
                 case RelayProtocol.HostRegister: {
+                    if (span.Length < 1 || span[0] != RelayProtocol.Version) {
+                        return;
+                    }
+                    span = span.Slice(1);
                     if (!RelayProtocol.TryReadRoom(span, out var roomId, out int used) || span.Length < used + RelayProtocol.SecretSize ||
                         !_rooms.TryGetValue(roomId, out var room) ||
                         !Pipeline.Security.ConnectionCrypto.FixedTimeEquals(span.Slice(used, RelayProtocol.SecretSize), room.Secret)) {
@@ -320,6 +345,10 @@ namespace NetSync.Relay {
                 }
 
                 case RelayProtocol.ClientRegister: {
+                    if (span.Length < 1 || span[0] != RelayProtocol.Version) {
+                        return;
+                    }
+                    span = span.Slice(1);
                     if (!RelayProtocol.TryReadRoom(span, out var roomId, out int used) || span.Length < used + RelayProtocol.NonceSize ||
                         !_rooms.TryGetValue(roomId, out var room) || room.HostUdp == null) {
                         return; // unknown room, or its host's UDP side isn't up yet: the client retries
