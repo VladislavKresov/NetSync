@@ -11,5 +11,5 @@ tags: [project]
 | netstandard2.1 lacks allocation-free `ReceiveFrom`/`SendTo` | ~130 B per datagram on UDP servers and relay sockets (net8.0: 0); CBC encryption allocates per message | platform limit |
 | No connection migration | a client whose address changes reconnects instead | would need a connection id in the envelope |
 | No JavaScript/TypeScript client | browsers need .NET (Blazor) for now | separate package — [[Roadmap]] |
-| Not yet verified in real Unity/Mono/IL2CPP or on devices | runtime surprises possible (ECDH/ECDsa availability) | [[Releasing]] checklist |
+| Verified in Unity 2021.3 (Mono) and 6000.2 (IL2CPP) on Windows only | Android, iOS and macOS are untested | run the adapter's PlayMode tests on devices |
 | A few dependencies go against the layering | `ReliableEndpoint`/`LinkSecurity` build `PeerProtocol` messages, the relay reuses `ConnectionCrypto.FixedTimeEquals`, transports use `ChannelPriority` from the reliability folder | see [[Dependency overview#Dependencies against the layering]]; candidates for small moves (e.g. a shared constant-time helper in `Internal`) |

@@ -18,9 +18,9 @@ A key exchange gives the **whole connection** integrity; channels marked `encryp
 |---|---|---|
 | Every packet authenticated | AES-GCM (GMAC) or HMAC-SHA256 tag, per-direction keys, replay window | [[LinkSecurity]] |
 | Payload confidentiality | AES-256-GCM or AES-256-CBC per channel | [[ConnectionCrypto]], [[ChannelTransform]] |
-| Suite negotiation | best common suite, part of keys and signature (no downgrade) | [[CipherSuite]] |
-| Server authenticity | ECDSA identity signs every handshake, clients pin keys | [[NetIdentity]] |
-| Connect data | encrypted with the session keys | [[Handshake v3]] |
+| Suite negotiation | best common suite, part of the key derivation (no downgrade) | [[CipherSuite]] |
+| Server authenticity | the identity key is mixed into the session keys, clients pin keys | [[NetIdentity]] |
+| Connect data | encrypted with the session keys | [[Handshake v4]] |
 | Who gets in | `ConnectionApprover`, `MaxConnections` | [[Connecting and approval]] |
 | Spoofing, floods | stream links create connections, cookies for UDP-only servers, trust mode, caps | [[Limits and hardening]] |
 
@@ -51,8 +51,9 @@ A server that can't prove one of the pinned keys is refused with `ConnectionReje
 
 ## Threat model
 
-- Hello/Welcome are plaintext; Welcome is signed when the server has an identity.
+- Hello/Welcome are plaintext, but every value in them is part of the key derivation: altering one in transit leaves the two sides with different keys and the connection never opens.
 - ECDH without pinning stops passive eavesdropping only.
 - Ping/pong is not authenticated (it only affects RTT measurement and liveness).
 - `Mode = None` authenticates nothing — fine on a trusted LAN, not on the internet.
-- ECDH and identity need P-256 (`ECDiffieHellman`/`ECDsa`), missing on some Mono/IL2CPP builds: check `NetIdentity.IsSupported`, or use `PresharedKey`.
+- Every keyed mode runs an ephemeral X25519 exchange implemented by the library itself, so all modes work on every runtime (Unity Mono and IL2CPP included), sessions can't be replayed, and past sessions stay private if a key leaks later.
+- A pre-shared key that ships inside a client is known to everyone who has the client: it keeps outsiders out, it does not tell your users apart. Use `Ecdh` with a pinned server identity plus a login in the connect data for that.

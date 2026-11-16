@@ -9,7 +9,7 @@ Use it for game servers and engines, desktop and mobile apps, services, streamin
 - **No dependencies.** A single DLL for `netstandard2.1` and `net8.0`, both speaking the same protocol.
 - **TCP and UDP in one connection.** Each channel picks its own transport, delivery mode and priority, so a file transfer doesn't hold up real-time traffic.
 - **Reliable UDP.** Five delivery modes, fragmentation of large messages and congestion control.
-- **Secure.** Per-packet authentication, AES encryption, key exchange by ECDH or pre-shared key, pinned server identity and server-side connection approval.
+- **Secure.** Per-packet authentication, AES encryption, a fresh key exchange for every session (with a pre-shared key or a pinned server identity), and server-side connection approval — the same on every runtime, Unity included.
 - **Connects through difficult networks.** Relay with room codes, UDP hole punching, UDP→TCP fallback, WebSocket and IPv6.
 - **Fast.** About 1.2 M UDP messages per second round-trip with no allocation per message (.NET 8, loopback, [full numbers and conditions](docs/5%20Project/Benchmarks%20and%20performance.md)).
 - **Common services included.** Typed messages, file streaming, auto-reconnect, shared server clock, LAN discovery, connectionless queries and a network simulator.
@@ -58,6 +58,6 @@ Console.ReadLine();
 
 ## Status
 
-Release candidate. Wire protocol v3 is not compatible with earlier versions. See [known limitations](docs/5%20Project/Known%20limitations.md).
+Release candidate. Wire protocol v4 is the stable contract: later releases extend it instead of replacing it. It is not compatible with 2.0.0-rc.4 and earlier — see the [changelog](CHANGELOG.md) and [known limitations](docs/5%20Project/Known%20limitations.md).
 
 MIT License.

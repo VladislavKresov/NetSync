@@ -33,7 +33,7 @@ await client.SendAsync(0, Encoding.UTF8.GetBytes("hello"));
 ## What happens
 
 1. `StartAsync` binds one port for TCP and UDP (dual-stack IPv6+IPv4) — [[NetServer]].
-2. `ConnectAsync` opens both links, runs the [[Handshake v3]] on each, then joins; the server raises `ConnectionOpened`.
+2. `ConnectAsync` opens both links, runs the [[Handshake v4]] on each, then joins; the server raises `ConnectionOpened`.
 3. Channel 0 goes over TCP, 1 straight over UDP, 2 through the [[ReliableEndpoint]] over UDP — [[Send path]].
 
 ## Two ways to receive

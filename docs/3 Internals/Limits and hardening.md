@@ -28,7 +28,7 @@ tags: [internals, security]
 ## Spoofing and floods
 
 - UDP peers are created only by data, never by pings (no reflection); pre-handshake peers get no keepalive.
-- Only stream links create connections; UDP-only servers require a cookie first ([[Handshake v3]]).
+- Only stream links create connections; UDP-only servers require a cookie first ([[Handshake v4]]).
 - `MaxConnections` is reserved before the approval, so bursts can't overshoot.
 - Accept loops survive misbehaving clients and back off on failing accepts ([[TcpAcceptLoop]]).
 

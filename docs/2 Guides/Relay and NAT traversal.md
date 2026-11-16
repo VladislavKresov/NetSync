@@ -24,6 +24,8 @@ clientConfig.TransportFactories[TransportType.Udp] = join.Udp;
 await client.ConnectAsync("relay.example.com", 7000);
 ```
 
+A relay is open to any host by default. Set `NetRelayServer.AccessKey` and the same `RelayRoom.AccessKey` on your hosts to let only your application open rooms; players still need nothing but the room code.
+
 ```mermaid
 flowchart LR
   subgraph HomeA["Host's home network"]

@@ -17,9 +17,12 @@ tags: [project]
 | 2026-10-13 | Priority on UDP = congestion-control flavour (Low = LEDBAT); queue order on TCP | [[Channels and delivery modes]] |
 | 2026-10-14 | NetSync is a universal low-level core; engine adapters live one level up; a JS/TS client is a separate package | phase 2.2 vision — [[What is NetSync]] |
 | 2026-10-14 | Zero allocation per message as an enforced property; send buffers reusable when `SendAsync` returns | [[Send path]] |
-| 2026-10-14 | Protocol v3: negotiated suites, server identity signatures, Join with encrypted connect data and approval, cookies for UDP-only servers | [[Handshake v3]], [[Keys and envelope]] |
-| 2026-10-14 | Stream links create connections, datagram links only join them | spoofing — [[Handshake v3]] |
+| 2026-10-14 | Protocol v3: negotiated suites, server identity signatures, Join with encrypted connect data and approval, cookies for UDP-only servers | superseded by v4 |
+| 2026-10-14 | Stream links create connections, datagram links only join them | spoofing — [[Handshake v4]] |
 | 2026-10-14 | Relay with UDP hole punching; the stream slot stays relayed (UDP-only configs go fully direct) | [[Relay and NAT traversal]] |
 | 2026-10-16 | UDP batching without delay, corked receive thread, collapsed acks; linger rejected | [[UDP batching]] |
 | 2026-10-16 | NetClient/NetServer split into partial files by concern; shared accept loop, cancellable connects, shared delivery helpers | final review — [[Repository and projects]] |
 | 2026-10-17 | Documentation vault in `docs/`, code notes and dependency diagrams generated from the source | this vault — [[Home]] |
+| 2026-11-17 | Protocol v4 is the stable wire contract: one last break before 1.0, then only negotiated extensions (feature bits, extension block, suite mask) | [[Handshake v4]] |
+| 2026-11-17 | The key exchange is the library's own X25519 for every keyed mode — nothing in the contract depends on what a runtime's class library offers; identities are proven through the exchange, no signatures | Unity has no P-256 — [[Keys and envelope]] |
+| 2026-11-17 | The relay protocol has its own version and an optional access key for hosts | a relay outlives the applications using it — [[Relay and NAT traversal]] |

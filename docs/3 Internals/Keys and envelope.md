@@ -8,10 +8,13 @@ tags: [internals, security, diagram]
 
 ```mermaid
 flowchart TD
-  psk["PresharedKey"] --> s1["HMAC-SHA256(psk, 'NetSync/3 session' ‖ token)"]
-  ecdh["ECDH P-256<br/>client key ↔ server key"] --> s2["shared secret + token"]
-  s1 --> secret["session secret"]
-  s2 --> secret
+  ee["X25519: client ephemeral ↔ server ephemeral"] --> ikm["key material"]
+  es["X25519: client ephemeral ↔ server identity<br/>(only with a server identity)"] --> ikm
+  psk["PresharedKey<br/>(only in that mode)"] --> ikm
+  tr["transcript of the handshake"] --> salt["SHA-256"]
+  ikm --> hkdf["HKDF-SHA256, info 'NetSync/4 session'"]
+  salt --> hkdf
+  hkdf --> secret["session secret"]
   secret --> k1["enc c2s"]
   secret --> k2["enc s2c"]
   secret --> k3["auth c2s"]
@@ -20,7 +23,7 @@ flowchart TD
   k3 & k4 --> envelope["link envelope<br/>GMAC or HMAC tag"]
 ```
 
-Every key is `HMAC-SHA256(secret, "NetSync/3 <purpose> <direction> <suite>")`. Per direction: a peer never authenticates with the key it verifies with (no reflection), and GCM nonces can't collide between directions. The suite is in every label: peers that disagree get unrelated keys and fail at the first packet. — [[ConnectionCrypto]], [[EcdhKeyExchange]]
+How the session secret comes about: [[Handshake v4#Session keys]]. Every key is `HMAC-SHA256(secret, "NetSync/4 <purpose> <direction> <suite>")`. Per direction: a peer never authenticates with the key it verifies with (no reflection), and GCM nonces can't collide between directions. The suite is in every label: peers that disagree get unrelated keys and fail at the first packet. — [[ConnectionCrypto]]
 
 ## Cipher suites
 
@@ -41,6 +44,6 @@ The client offers a bitmask, the server picks the best common suite — [[Cipher
 
 ## Server identity
 
-ECDSA P-256 ([[NetIdentity]]) signs `"NetSync/3 server identity" ‖ token ‖ configHash ‖ keyExchange ‖ offeredSuites ‖ chosenSuite ‖ clientKey ‖ serverKey`. The signature binds the ECDH keys *and* the suite choice: a man-in-the-middle can neither substitute keys nor downgrade. Clients with `TrustedServerKeys` accept only those keys; fingerprints are `SHA256:xx:…`.
+A long-term X25519 key pair ([[NetIdentity]]). The server sends the public key in Welcome and mixes an exchange between it and the client's ephemeral key into the session keys; a client with `TrustedServerKeys` accepts only a pinned key. A server that presents a pinned key without holding its private key derives different session keys, so its packets never verify and the client fails with `ServerIdentity`. Because the whole transcript is part of the derivation, neither the keys nor the suite choice can be swapped in transit.
 
-Guide: [[Security]]. Handshake: [[Handshake v3]].
+Guide: [[Security]]. Handshake: [[Handshake v4]].

@@ -24,9 +24,9 @@ Inside transport Data; after the handshake inside the envelope on keyed connecti
 
 | Message | Layout |
 |---|---|
-| Hello `0x01` | `[ver=3][token:8][configHash:4][keyExchange:1][suites:1][pubLen:1][pub…][cookieLen:1][cookie…]` |
-| Welcome `0x02` | `[connectionId:8][suite:1][pubLen:1][pub…][idLen:1][identityKey…][sigLen:1][signature…]` |
-| Reject `0x03` | `[reason:1]` 1 version · 2 encryption · 3 configuration · 4 authentication |
+| Hello `0x01` | `[ver=4][token:8][configHash:4][keyExchange:1][suites:1][appId:8][appVersion:2][features:4][pubLen:1][pub…][cookieLen:1][cookie…][extLen:2][extensions…]` — [[Handshake v4]] |
+| Welcome `0x02` | `[connectionId:8][suite:1][features:4][pubLen:1][pub…][idLen:1][identityKey…][extLen:2][extensions…]` |
+| Reject `0x03` | `[reason:1]` 1 version · 2 encryption · 3 configuration · 4 authentication · 5 application |
 | Bye `0x04` | `[reason:1]` 0 graceful/shutdown · 1 kicked |
 | Degrade `0x05` | (empty) — carry my UDP channels over the stream link |
 | Retry `0x06` | `[cookie:16]` |

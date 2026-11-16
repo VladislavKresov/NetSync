@@ -16,7 +16,7 @@ tags: [guide]
 
 ## SecureLogin
 
-`samples/SecureLogin` — ECDH + [[NetIdentity]]: the server signs handshakes, the client pins `server.pub`; the login travels as encrypted connect data; `ConnectionApprover` checks it. The demo shows a good login (AES-GCM), a wrong password (`Application` refusal) and an impostor server (`ServerIdentity` refusal). See [[Security]], [[Connecting and approval]].
+`samples/SecureLogin` — key exchange + [[NetIdentity]]: only the server holding the identity can complete the handshake, the client pins `server.pub`; the login travels as encrypted connect data; `ConnectionApprover` checks it. The demo shows a good login (AES-GCM), a wrong password (`Application` refusal) and an impostor server (`ServerIdentity` refusal). See [[Security]], [[Connecting and approval]].
 
 ## Relay
 

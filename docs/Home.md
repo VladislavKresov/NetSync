@@ -39,7 +39,7 @@ A universal low-level networking core for .NET — simple to use, reliable, flex
 |---|---|
 | One message from `SendAsync` to the wire | [[Send path]] |
 | From the socket to your handler | [[Receive path]] |
-| Hello, Welcome, Join | [[Handshake v3]] |
+| Hello, Welcome, Join | [[Handshake v4]] |
 | ARQ, acks, congestion control | [[Reliable UDP]] |
 | Packing small packets into datagrams | [[UDP batching]] |
 | Key schedule and packet authentication | [[Keys and envelope]] |
@@ -55,7 +55,7 @@ A universal low-level networking core for .NET — simple to use, reliable, flex
 - [[Type hierarchy]] — interfaces and their implementations (generated)
 - [[Architecture.canvas]] — a board of all modules grouped by folder, clickable (generated)
 - Per-folder maps: [[Module map Peers]], [[Module map Transports]], [[Module map Transports Udp]], [[Module map Relay]], [[Module map Pipeline Reliability]], [[Module map Pipeline Security]] … (all in `4 Diagrams/Modules`)
-- Sequence and flow diagrams live in the internals notes: [[Handshake v3]], [[Send path]], [[Receive path]], [[UDP batching]], [[Relay internals]], [[Keys and envelope]]
+- Sequence and flow diagrams live in the internals notes: [[Handshake v4]], [[Send path]], [[Receive path]], [[UDP batching]], [[Relay internals]], [[Keys and envelope]]
 
 ## Code reference
 

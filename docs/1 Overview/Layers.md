@@ -79,4 +79,4 @@ flowchart LR
   lu <==>|datagrams| pu
 ```
 
-A logical connection is one link per transport *slot* the channel table uses, grouped by a session token ([[Handshake v3]]). Channels route to a slot; reliable UDP channels go through the connection's [[ReliableEndpoint]]. If UDP is unavailable, UDP channels ride the stream link ([[Connecting and approval#When UDP is blocked]]).
+A logical connection is one link per transport *slot* the channel table uses, grouped by a session token ([[Handshake v4]]). Channels route to a slot; reliable UDP channels go through the connection's [[ReliableEndpoint]]. If UDP is unavailable, UDP channels ride the stream link ([[Connecting and approval#When UDP is blocked]]).

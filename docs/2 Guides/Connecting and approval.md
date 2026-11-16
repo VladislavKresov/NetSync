@@ -47,7 +47,7 @@ stateDiagram-v2
 - The server raises `ConnectionOpened` before it sends `JoinAccept`, so nothing the client sends can arrive before the event.
 - `MaxConnections` is reserved *before* the approver runs: simultaneous joins can't overshoot it.
 
-Protocol details: [[Handshake v3]].
+Protocol details: [[Handshake v4]].
 
 ## When UDP is blocked
 

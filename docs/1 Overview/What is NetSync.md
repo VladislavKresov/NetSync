@@ -22,7 +22,7 @@ NetSync is a networking core: it moves bytes between a server and its clients ov
 | Connection | TCP + UDP as one connection, any number of channels | [[Channels and delivery modes]], [[Connecting and approval]] |
 | Reliability | five UDP delivery modes, congestion control, priorities | [[Reliable UDP]] |
 | Throughput | UDP batching, coalesced TCP writes, zero-copy receive | [[UDP batching]], [[Benchmarks and performance]] |
-| Security | per-packet authentication, AES-GCM/CBC, server identity, approval | [[Security]], [[Handshake v3]] |
+| Security | per-packet authentication, AES-GCM/CBC, server identity, approval | [[Security]], [[Handshake v4]] |
 | Reach | WebSocket for browsers, UDP→TCP fallback, relay + hole punching, IPv6 | [[Browsers and WebSocket]], [[Relay and NAT traversal]] |
 | Services | server clock, queries, LAN discovery, path MTU, network simulator | [[Session services]] |
 | Usability | typed messages, file streaming, statistics, auto-reconnect | [[Typed messages and streams]] |

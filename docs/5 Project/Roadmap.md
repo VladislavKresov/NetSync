@@ -10,29 +10,17 @@ Phases 2.0 (stages 0–8: core extraction, transports, peer layer, reliability, 
 
 ## Next
 
-- [ ] Publish: remotes, repository URL, NuGet id check, API key, tag ([[Releasing]]).
-- [ ] Verify in real Unity 2021.2+ (Mono, IL2CPP) and on Android/iOS.
-- [ ] Update the Unity adapter (below).
-- [ ] Reliable-ordered throughput: ack/data piggybacking ([[Known limitations]]).
-- [ ] JavaScript/TypeScript browser client over WebSocket + protocol v3 (separate repo).
+Towards 1.0, on protocol v4 ([[Handshake v4]]):
+
+- [x] Protocol v4: key exchange that works on every runtime, extension points, application id, relay protocol version.
+- [x] Verified in Unity 2021.3 (Mono) and 6000.2 (IL2CPP) on Windows.
+- [ ] Behaviour fixes: reliable data never dropped silently when the event queue overflows; one backpressure rule for sends; UDP loss mid-session degrades to the stream link instead of closing.
+- [ ] Tests on .NET 8 and .NET 10, CI on Windows, Linux and macOS; public API checked against the last release.
+- [ ] Verify on Android and iOS.
+
+After 1.0, without breaking v4:
+
+- [ ] Reliable-ordered throughput (extended reliability format under a feature bit) — [[Known limitations]].
+- [ ] Connection migration for clients whose address changes (feature bit).
+- [ ] JavaScript/TypeScript browser client over WebSocket (separate repo), then Unity WebGL.
 - Out of scope for the core: codecs, object replication, RPC frameworks — they belong in packages on top.
-
-## Unity adapter
-
-The adapter (`NetSync.Unity`) was deliberately left untouched in 2.2. It compiles against the new DLL as is (the APIs it uses didn't change), but must ship it: protocol v3 does not talk to rc.2.
-
-Required:
-1. Refresh the DLL and bump the package to 2.0.0-rc.3.
-2. Test on real Unity and devices: `NetIdentity.IsSupported` / ECDH on IL2CPP, batching, WebSocket.
-
-Recommended:
-3. Zero-allocation receive: subscribe to the core's `MessageReceived`, create arrays only when the adapter's `DataReceived` has subscribers; expose `MessageReceived`.
-4. Zero-allocation send: check `IsCompletedSuccessfully` before awaiting in its `Observe(ValueTask)`.
-5. Inspector security: ECDH + server identity (private key from a secure store, not the scene), trusted keys (base64), fingerprint display.
-6. Join: `connectData`, `ConnectionApprover` passthrough, `MaxConnections`, a refusal event with `Rejection`/`Reason`.
-7. Services: `ServerTimeMs` for interpolation (PositionSync), `NetQuery` for server lists, discovery `Payload` + `ServerDiscovered`.
-8. Relay: host-through-relay mode (show the room code) and join by code.
-9. `NetworkSimulation` in the inspector for development builds.
-10. Samples: Chat on struct messages; document WebGL as unsupported until the JS client.
-
-Relevant notes: [[Security]], [[Connecting and approval]], [[Session services]], [[Relay and NAT traversal]], [[Typed messages and streams]].

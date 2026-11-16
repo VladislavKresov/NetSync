@@ -14,8 +14,8 @@ using NetSync.Peers;
 //   dotnet run -- server 7777                     creates server.key / server.pub on first run
 //   dotnet run -- client 7777 alice secret [host] needs server.pub next to it
 //
-// - ECDH key exchange + a server identity (NetIdentity): the server signs every handshake,
-//   the client accepts only the pinned public key — no man-in-the-middle.
+// - Key exchange + a server identity (NetIdentity): only the server that holds the identity can
+//   complete the handshake, and the client accepts only the pinned public key — no man-in-the-middle.
 // - The login travels as connect data, encrypted with the session keys.
 // - ConnectionApprover checks it before the connection opens; refusals reach the client.
 
@@ -106,7 +106,7 @@ static async Task DemoAsync() {
     await LoginAsync("127.0.0.1", port, "alice", "guess", identity.PublicKey);
 
     // Someone else answers at an address the client trusts (DNS spoofing, a rogue Wi-Fi hotspot):
-    // their own identity can't produce the pinned key's signature.
+    // their own identity is not the pinned one.
     using var impostorIdentity = NetIdentity.Generate();
     using var impostor = StartServer(impostorIdentity);
     int impostorPort = await impostor.StartAsync(0);
