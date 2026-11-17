@@ -10,17 +10,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - name: Restore
         run: dotnet restore NetSync.sln
       - name: Build (both targets, warnings as errors)
         run: dotnet build NetSync.sln --no-restore -c Release
-      - name: Test
+      - name: Test (the net8.0 and netstandard2.1 builds of the core, on .NET 8 and .NET 10)
         run: dotnet test NetSync.sln --no-build -c Release --logger "console;verbosity=normal"
 
   pack:
@@ -30,7 +32,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
       - name: Pack
         run: dotnet pack src/NetSync/NetSync.csproj -c Release -o artifacts
       - name: Unity package (the release publishes it)

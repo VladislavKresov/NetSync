@@ -84,6 +84,12 @@ namespace NetSync.Relay {
         /// </summary>
         public string? AccessKey { get; set; }
 
+        /// <summary>
+        /// How long a client closed by its host still gets what is already queued for it
+        /// (the host's last messages, such as a kick notice) before the relay drops the link.
+        /// </summary>
+        public int CloseFlushTimeoutMs { get; set; } = 1000;
+
         /// <summary>Most clients per room (stream and datagram sides counted separately).</summary>
         public int MaxClientsPerRoom { get; set; } = 1024;
 
@@ -270,8 +276,6 @@ namespace NetSync.Relay {
                 }
             }
         }
-
-        private const int CloseFlushTimeoutMs = 1000;
 
         private static async Task RefuseAsync(FramedConnection connection, string reason) {
             connection.TrySend(RelayProtocol.Refused, System.Text.Encoding.UTF8.GetBytes(reason), ReadOnlySpan<byte>.Empty, SendPriority.High);

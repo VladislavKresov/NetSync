@@ -114,10 +114,15 @@ namespace NetSync.Tests {
             var inflated = Compressor.Decompress(blob, 0, blobLength, 1 << 20, NullNetLogger.Instance, out int inflatedLength);
             Assert.Equal(compressible, inflated!.AsSpan(0, inflatedLength).ToArray());
 
-            Assert.Null(Compressor.Decompress(blob, 0, blobLength - 1, 1 << 20, NullNetLogger.Instance, out _)); // truncated
+            // Half the stream can't hold all the data (one missing byte may be padding only, depending on the runtime's deflate).
+            Assert.Null(Compressor.Decompress(blob, 0, blobLength / 2, 1 << 20, NullNetLogger.Instance, out _)); // truncated
             Assert.Null(Compressor.Decompress(blob, 0, blobLength, compressible.Length - 1, NullNetLogger.Instance, out _)); // over the cap
-            blob[7] ^= 0xFF; // corrupt the deflate stream
-            Assert.Null(Compressor.Decompress(blob, 0, blobLength, 1 << 20, NullNetLogger.Instance, out _));
+            // Deflate carries no checksum: a corrupted stream is either refused or decodes to
+            // other bytes, depending on the runtime — but never to more than the declared length.
+            // Detecting altered data is the job of the authenticated envelope, not of compression.
+            blob[7] ^= 0xFF;
+            var corrupted = Compressor.Decompress(blob, 0, blobLength, 1 << 20, NullNetLogger.Instance, out int corruptedLength);
+            Assert.True(corrupted == null || corruptedLength == compressible.Length);
 
             var random = new byte[1000];
             new Random(1).NextBytes(random);

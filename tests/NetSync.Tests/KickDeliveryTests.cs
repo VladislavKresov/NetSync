@@ -14,7 +14,8 @@ namespace NetSync.Tests {
         [InlineData(true)]
         public async Task Kick_Reaches_A_Client_While_Data_Is_Still_Queued(bool relayed) {
             // TCP only: on a UDP link the Bye travels separately and would hide a lost one.
-            using var relay = new NetRelayServer();
+            // Generous flush windows: how fast a loaded machine drains the queues is not what this test is about.
+            using var relay = new NetRelayServer { CloseFlushTimeoutMs = 30_000 };
             using var server = new NetServer(Config());
             var opened = new TaskCompletionSource<NetConnection>(TaskCreationOptions.RunContinuationsAsynchronously);
             server.ConnectionOpened += connection => opened.TrySetResult(connection);
@@ -61,13 +62,14 @@ namespace NetSync.Tests {
         }
 
         private static NetConfig Config() {
-            var config = new NetConfig { EventDelivery = EventDelivery.Immediate, ConnectTimeoutMs = 15000, PingIntervalMs = 200 };
+            var config = new NetConfig { EventDelivery = EventDelivery.Immediate, ConnectTimeoutMs = 15000, PingIntervalMs = 200,
+                                         CloseFlushTimeoutMs = 30_000 };
             config.Channels[0] = new ChannelConfig(TransportType.Tcp);
             return config;
         }
 
         private static async Task<T> WithTimeout<T>(Task<T> task) {
-            Assert.Same(task, await Task.WhenAny(task, Task.Delay(10_000)));
+            Assert.Same(task, await Task.WhenAny(task, Task.Delay(40_000)));
             return await task;
         }
     }

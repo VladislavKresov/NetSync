@@ -37,7 +37,8 @@ namespace NetSync.Tests {
             }
             Assert.True(await Eventually.HoldsAsync(() => !client.IsConnected), "the connection should close instead of dropping reliable data");
 
-            client.PollEvents();
+            // The Disconnected event is queued like any other: poll until it arrives.
+            Assert.True(await Eventually.HoldsAsync(() => { client.PollEvents(); return reason != null; }));
             Assert.Equal(DisconnectReason.Overloaded, reason);
             // What was delivered is an unbroken prefix: nothing in the middle went missing.
             Assert.InRange(received.Count, 1, 29);

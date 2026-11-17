@@ -3,11 +3,11 @@
   <!--
     Runs the exact same test suite against the netstandard2.1 build of the core
     (the one Unity uses), so code paths behind #if NET8_0_OR_GREATER are covered
-    for both targets. It runs on the .NET 8 runtime: it verifies the netstandard2.1
+    for both targets. It runs on modern .NET runtimes: it verifies the netstandard2.1
     compilation, not Mono/IL2CPP runtime behavior.
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>

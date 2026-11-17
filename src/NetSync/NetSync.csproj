@@ -7,6 +7,9 @@
     <RootNamespace>NetSync</RootNamespace>
     <AssemblyName>NetSync</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- dotnet pack fails when the two targets expose different public APIs. After a stable release, add
+         PackageValidationBaselineVersion so it also fails on a breaking change against that release. -->
+    <EnablePackageValidation>true</EnablePackageValidation>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>

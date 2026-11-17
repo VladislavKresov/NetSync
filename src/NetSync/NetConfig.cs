@@ -188,6 +188,13 @@ namespace NetSync {
         public int WriteTimeoutMs { get; set; } = 15000;
 
         /// <summary>
+        /// Server only: how long a kick or a shutdown waits for what is already queued for the
+        /// client (the notice itself included) to be written before the links close. A client
+        /// that has stopped reading can hold a kick up for this long, and no longer.
+        /// </summary>
+        public int CloseFlushTimeoutMs { get; set; } = 1000;
+
+        /// <summary>
         /// Polled mode only: cap on undelivered events, so memory can't grow without bound when
         /// PollEvents() isn't called for a while. Beyond the cap, messages of unreliable channels
         /// are dropped (with a warning); a message of a reliable channel closes its connection

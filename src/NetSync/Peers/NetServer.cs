@@ -533,8 +533,6 @@ namespace NetSync.Peers {
             }
         }
 
-        private const int ByeFlushTimeoutMs = 1000;
-
         internal async Task KickAsync(NetConnection connection, bool kicked) {
             byte reason = kicked ? PeerProtocol.ByeKicked : PeerProtocol.ByeGraceful;
             foreach (var kvp in connection.Links) {
@@ -550,7 +548,7 @@ namespace NetSync.Peers {
             // a client that stopped reading can't hold the kick up.
             foreach (var kvp in connection.Links) {
                 if (kvp.Value.Owner is IPeerFlushingServerTransport flushing) {
-                    await flushing.FlushPeerAsync(kvp.Value, ByeFlushTimeoutMs).ConfigureAwait(false);
+                    await flushing.FlushPeerAsync(kvp.Value, Math.Max(0, _config.CloseFlushTimeoutMs)).ConfigureAwait(false);
                 }
             }
             CloseConnection(connection, DisconnectReason.Local, notifyLinks: true);

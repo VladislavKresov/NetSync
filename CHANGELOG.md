@@ -20,6 +20,8 @@ Versions follow [Semantic Versioning](https://semver.org). The wire protocol has
 ### Added
 - `NetConfig.AppId` and `NetConfig.AppProtocolVersion`: a server refuses clients of another application or application protocol version (`ConnectionRejection.ApplicationMismatch`).
 - `NetRelayServer.AccessKey` / `RelayRoom.AccessKey`: a relay can restrict who may open rooms.
+- `NetConfig.CloseFlushTimeoutMs` and `NetRelayServer.CloseFlushTimeoutMs`: how long a kick or shutdown waits for queued data to leave (1 s by default, as before).
+- Tests run on .NET 8 and .NET 10; CI covers Windows, Linux and macOS.
 - Extension points in the handshake (feature bits, extension block): unknown ones are ignored, so future releases stay compatible with v4.
 - Reference vectors of protocol v4 (`ProtocolV4VectorsTests`, `tools/protocol-v4-vectors.py`).
 
