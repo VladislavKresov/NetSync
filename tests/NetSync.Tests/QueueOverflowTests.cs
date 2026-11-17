@@ -49,12 +49,19 @@ namespace NetSync.Tests {
 
         [Fact]
         public async Task A_Full_Send_Queue_Slows_The_Sender_Down_Instead_Of_Failing() {
-            using var server = new NetServer(Config(EventDelivery.Immediate));
+            var serverConfig = Config(EventDelivery.Immediate);
+            serverConfig.PingTimeoutMs = 60_000;
+            serverConfig.WriteTimeoutMs = 60_000;
+            using var server = new NetServer(serverConfig);
             var opened = new TaskCompletionSource<NetConnection>(TaskCreationOptions.RunContinuationsAsynchronously);
             server.ConnectionOpened += connection => opened.TrySetResult(connection);
             int port = await server.StartAsync(0);
 
-            using var client = new NetClient(Config(EventDelivery.Immediate));
+            // The client stops reading for a while, pongs included: give the keepalive room so the
+            // server doesn't drop it as dead while a slow machine fills the queue.
+            var clientConfig = Config(EventDelivery.Immediate);
+            clientConfig.PingTimeoutMs = 60_000;
+            using var client = new NetClient(clientConfig);
             using var resume = new System.Threading.ManualResetEventSlim();
             long received = 0;
             client.DataReceived += (channel, data) => {

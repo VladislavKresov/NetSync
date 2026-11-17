@@ -30,8 +30,23 @@ jobs:
       - name: Build (both targets, warnings as errors)
         run: dotnet build NetSync.sln --no-restore -c Release
       - name: Test (the net8.0 and netstandard2.1 builds of the core, on .NET 8 and .NET 10)
+        shell: bash
         # A test that hangs is stopped after 10 minutes and named in the log (--blame-hang).
-        run: dotnet test NetSync.sln --no-build -c Release --logger "console;verbosity=normal" --blame-hang-timeout 10m --blame-hang-dump-type none
+        run: |
+          set -o pipefail
+          dotnet test NetSync.sln --no-build -c Release --logger "console;verbosity=normal" \
+            --blame-hang-timeout 10m --blame-hang-dump-type none 2>&1 | tee test-output.txt
+      - name: Report failures as annotations
+        if: failure()
+        shell: bash
+        run: python3 tools/ci-annotate.py test-output.txt
+      - name: Name a hanging test (runs the tests one at a time)
+        if: failure() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          dotnet test tests/NetSync.Tests/NetSync.Tests.csproj --no-build -c Release -f net8.0 --logger "console;verbosity=normal" \
+            --blame-hang-timeout 3m --blame-hang-dump-type none -- xUnit.ParallelizeTestCollections=false 2>&1 | tee sequential-output.txt || true
+          python3 tools/ci-annotate.py sequential-output.txt
 
   pack:
     runs-on: ubuntu-latest

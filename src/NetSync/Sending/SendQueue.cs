@@ -177,8 +177,12 @@ namespace NetSync.Sending {
             try {
                 await EnqueueAsync(buffer, length, pooled: true, priority, ct).ConfigureAwait(false);
             }
-            catch {
+            catch (ObjectDisposedException ex) {
                 Pooled.Return(buffer); // never queued: still ours
+                throw new InvalidOperationException("The connection closed while the message was waiting to be sent", ex);
+            }
+            catch {
+                Pooled.Return(buffer);
                 throw;
             }
         }
