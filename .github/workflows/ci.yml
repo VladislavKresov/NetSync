@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+# A newer push makes the running checks of an older one pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false # every system reports its own result
       matrix:
@@ -24,7 +30,8 @@ jobs:
       - name: Build (both targets, warnings as errors)
         run: dotnet build NetSync.sln --no-restore -c Release
       - name: Test (the net8.0 and netstandard2.1 builds of the core, on .NET 8 and .NET 10)
-        run: dotnet test NetSync.sln --no-build -c Release --logger "console;verbosity=normal"
+        # A test that hangs is stopped after 10 minutes and named in the log (--blame-hang).
+        run: dotnet test NetSync.sln --no-build -c Release --logger "console;verbosity=normal" --blame-hang-timeout 10m --blame-hang-dump-type none
 
   pack:
     runs-on: ubuntu-latest
