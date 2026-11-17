@@ -213,8 +213,8 @@ namespace NetSync.Tests {
             var filler = client.SendAsync(channel, fillerData); // occupies the queue/window first
             var send = client.SendAsync(channel, buffer);
             buffer.AsSpan().Fill(0x55); // scribble over it before the send has finished
-            await filler;
-            await send;
+            await WithProgressReport(filler.AsTask(), client, server, "filler");
+            await WithProgressReport(send.AsTask(), client, server, "send");
 
             Assert.Same(bothArrived.Task, await Task.WhenAny(bothArrived.Task, Task.Delay(30_000)));
             int intact = 0;
@@ -226,6 +226,20 @@ namespace NetSync.Tests {
             }
             Assert.Equal(1, intact);
             await server.StopAsync();
+        }
+
+        /// <summary>Waits for a send; if it doesn't finish, fails with what both sides were doing instead of hanging.</summary>
+        private static async Task WithProgressReport(Task task, NetClient client, NetServer server, string what) {
+            var history = new System.Text.StringBuilder();
+            for (int second = 0; second < 60; second++) {
+                if (await Task.WhenAny(task, Task.Delay(1000)) == task) {
+                    await task;
+                    return;
+                }
+                var connection = System.Linq.Enumerable.FirstOrDefault(server.Connections);
+                history.Append($"[{second}s client {client.Statistics} | server {connection?.Statistics}] ");
+            }
+            throw new TimeoutException($"{what} did not finish in 60 s: {history}");
         }
 
         [Fact]
