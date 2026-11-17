@@ -17,6 +17,9 @@ namespace NetSync.Transports.Udp {
 
         /// <summary>Dual-stack (IPv6 + IPv4) server socket where possible, IPv4-only otherwise.</summary>
         public static Socket BindServer(int port) {
+            if (port != 0) {
+                RefuseIfHeldOverIpv4(port);
+            }
             if (Socket.OSSupportsIPv6) {
                 Socket? socket = null;
                 try {
@@ -47,6 +50,17 @@ namespace NetSync.Transports.Udp {
         }
 
         /// <summary>
+        /// Windows and macOS let a dual-stack socket bind a port an IPv4 socket already holds, and
+        /// the IPv4 socket then gets the IPv4 traffic: the server would hear nothing. Binding an
+        /// IPv4 socket to the port first turns that into an ordinary "port in use" everywhere.
+        /// (Windows also gets exclusive binding below; this covers the other platforms.)
+        /// </summary>
+        private static void RefuseIfHeldOverIpv4(int port) {
+            using var probe = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            probe.Bind(new IPEndPoint(IPAddress.Any, port)); // throws AddressAlreadyInUse when someone holds it
+        }
+
+        /// <summary>
         /// Windows lets an IPv4 socket and a dual-stack socket share a port number and delivers
         /// IPv4 traffic to the IPv4 one: a server would bind without an error and hear nothing.
         /// Exclusive binding turns that into an ordinary "port in use". Elsewhere it already is one.
@@ -69,7 +83,17 @@ namespace NetSync.Transports.Udp {
             socket.ReceiveBufferSize = 1 << 20;
             socket.SendBufferSize = 1 << 20;
             DisableIcmpConnectionReset(socket);
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+                // Our receive loops block in ReceiveFrom on their own thread, and stop by closing the
+                // socket. On macOS closing a UDP socket doesn't wake a thread blocked in it, and the
+                // close waits for that call: a stop would hang until the next datagram. Waking up
+                // regularly bounds that wait; the loops treat the timeout as "nothing arrived".
+                socket.ReceiveTimeout = ReceiveWakeMs;
+            }
         }
+
+        /// <summary>How often a blocked receive wakes up on its own (non-Windows).</summary>
+        public const int ReceiveWakeMs = 250;
 
         /// <summary>
         /// Windows reports an ICMP "port unreachable" for an earlier datagram as an error on
@@ -92,7 +116,9 @@ namespace NetSync.Transports.Udp {
 
         /// <summary>Errors a datagram socket reports for earlier sends (ICMP); never fatal for the socket.</summary>
         public static bool IsTransient(SocketError error) {
-            return error == SocketError.ConnectionReset ||
+            return error == SocketError.TimedOut ||        // ReceiveWakeMs passed without a datagram
+                   error == SocketError.WouldBlock ||
+                   error == SocketError.ConnectionReset ||
                    error == SocketError.ConnectionRefused ||
                    error == SocketError.HostUnreachable ||
                    error == SocketError.NetworkUnreachable ||
