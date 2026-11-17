@@ -46,12 +46,8 @@ namespace NetSync.Transports {
                 return BulkSender.SendAsync(SendQueue, prefix, payload, PriorityMapping.ForFragments(priority), Metrics, lengthPrefixed: false, ct);
             }
             var message = PacketProtocol.RentUdpDataPacket(prefix.Span, payload.Span, out int length); // [Data][prefix][payload]
-            if (!SendQueue.TryEnqueue(message, length, pooled: true, priority)) {
-                PacketProtocol.Return(message);
-                throw new InvalidOperationException("Send queue overflow (the remote is not keeping up)");
-            }
             Metrics.IncrementPacketsSent();
-            return default;
+            return SendQueue.EnqueueOrWaitAsync(message, length, priority, ct); // a full queue slows the sender down
         }
 
         public void SendPing() {

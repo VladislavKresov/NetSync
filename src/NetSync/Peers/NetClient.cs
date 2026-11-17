@@ -452,7 +452,7 @@ namespace NetSync.Peers {
             }
             if (!channelConfig.NeedsTransform) {
                 session.Traffic.OnReceived(count);
-                DispatchDataEvent(channel, buffer, offset, count);
+                DispatchDataEvent(session, channelConfig, channel, buffer, offset, count);
                 return;
             }
             var decoded = ChannelTransform.Decode(channelConfig, session.Crypto, buffer, offset, count,
@@ -462,19 +462,20 @@ namespace NetSync.Peers {
             }
             try {
                 session.Traffic.OnReceived(length);
-                DispatchDataEvent(channel, decoded, 0, length);
+                DispatchDataEvent(session, channelConfig, channel, decoded, 0, length);
             }
             finally {
                 Pooled.Return(decoded);
             }
         }
 
-        private void DispatchDataEvent(byte channel, byte[] buffer, int offset, int count) {
+        private void DispatchDataEvent(Session session, ChannelConfig channelConfig, byte channel, byte[] buffer, int offset, int count) {
             if (_dispatcher.IsImmediate) {
                 RaiseData(channel, buffer, offset, count); // straight from the network buffer
             }
-            else {
-                _dispatcher.QueueData(null, channel, buffer, offset, count);
+            else if (!_dispatcher.QueueData(null, channel, buffer, offset, count) && channelConfig.IsReliable) {
+                _logger.Error($"Event queue full: closing the connection instead of losing a reliable message on channel {channel}");
+                CloseSession(session, DisconnectReason.Overloaded, raiseEvent: true);
             }
         }
 

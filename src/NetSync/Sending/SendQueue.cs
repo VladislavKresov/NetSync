@@ -161,6 +161,28 @@ namespace NetSync.Sending {
             _work.Set();
         }
 
+        /// <summary>
+        /// Queues a pooled buffer, waiting for room when the queue is full: a sender that awaits
+        /// its sends is slowed down to the pace of the connection instead of failing. The queue
+        /// owns the buffer in every outcome (it goes back to the pool if this throws).
+        /// </summary>
+        public ValueTask EnqueueOrWaitAsync(byte[] buffer, int length, SendPriority priority, CancellationToken ct) {
+            if (TryEnqueue(buffer, length, pooled: true, priority)) {
+                return default;
+            }
+            return WaitAndEnqueueAsync(buffer, length, priority, ct);
+        }
+
+        private async ValueTask WaitAndEnqueueAsync(byte[] buffer, int length, SendPriority priority, CancellationToken ct) {
+            try {
+                await EnqueueAsync(buffer, length, pooled: true, priority, ct).ConfigureAwait(false);
+            }
+            catch {
+                Pooled.Return(buffer); // never queued: still ours
+                throw;
+            }
+        }
+
         private void PushLocked(byte[] buffer, int length, bool pooled, SendPriority priority) {
             _queues[(int)priority].Enqueue(new Job(buffer, length, pooled));
             _count++;

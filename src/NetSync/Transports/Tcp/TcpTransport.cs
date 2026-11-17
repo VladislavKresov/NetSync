@@ -143,9 +143,10 @@ namespace NetSync.Transports.Tcp {
             }
 
             var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
-            if (!connection.SendQueue.TryEnqueue(frame, length, pooled: true, priority)) {
-                PacketProtocol.Return(frame);
-                throw new InvalidOperationException("Send queue overflow (the remote is not keeping up)");
+            var queued = connection.SendQueue.EnqueueOrWaitAsync(frame, length, priority, ct); // a full queue slows the sender down
+            if (!queued.IsCompletedSuccessfully) {
+                connection.Metrics.IncrementPacketsSent();
+                return queued;
             }
             connection.Metrics.IncrementPacketsSent();
             connection.Metrics.UpdateSendQueueSize(connection.SendQueue.Count);

@@ -269,11 +269,7 @@ namespace NetSync.Transports.Tcp {
             }
 
             var frame = PacketProtocol.RentTcpDataFrame(prefix.Span, payload.Span, out int length);
-            if (!state.SendQueue.TryEnqueue(frame, length, pooled: true, priority)) {
-                PacketProtocol.Return(frame);
-                throw new InvalidOperationException($"Send queue overflow for {peer} (the client is not keeping up)");
-            }
-            return default;
+            return state.SendQueue.EnqueueOrWaitAsync(frame, length, priority, ct); // a full queue slows the sender down
         }
 
         System.Threading.Tasks.Task IPeerFlushingServerTransport.FlushPeerAsync(TransportPeer peer, int timeoutMs) {

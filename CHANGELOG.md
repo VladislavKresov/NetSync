@@ -14,6 +14,9 @@ Versions follow [Semantic Versioning](https://semver.org). The wire protocol has
 - A server proves its identity through the key exchange instead of a signature. A server that presents a pinned key without holding it is refused with `ConnectionRejection.ServerIdentity`.
 - The relay protocol carries a version; a relay refuses peers of another version with a reason.
 
+- A reliable message is never lost silently: with Polled delivery, when the event queue is full (`MaxPendingEvents`), the connection that receives data on a reliable channel is closed with the new `DisconnectReason.Overloaded`. Messages of unreliable channels are dropped as before.
+- `SendAsync` on a stream channel waits for room when the send queue is full instead of throwing: await your sends and a slow connection slows the sender down. `BroadcastAsync` hands the message to every connection before waiting for any of them.
+
 ### Added
 - `NetConfig.AppId` and `NetConfig.AppProtocolVersion`: a server refuses clients of another application or application protocol version (`ConnectionRejection.ApplicationMismatch`).
 - `NetRelayServer.AccessKey` / `RelayRoom.AccessKey`: a relay can restrict who may open rooms.

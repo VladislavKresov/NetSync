@@ -376,7 +376,7 @@ namespace NetSync.Peers {
             }
             if (!channelConfig.NeedsTransform) {
                 connection.Traffic.OnReceived(count);
-                DispatchDataEvent(connection, channel, buffer, offset, count);
+                DispatchDataEvent(connection, channelConfig, channel, buffer, offset, count);
                 return;
             }
             var decoded = ChannelTransform.Decode(channelConfig, connection.Crypto, buffer, offset, count,
@@ -386,19 +386,20 @@ namespace NetSync.Peers {
             }
             try {
                 connection.Traffic.OnReceived(length);
-                DispatchDataEvent(connection, channel, decoded, 0, length);
+                DispatchDataEvent(connection, channelConfig, channel, decoded, 0, length);
             }
             finally {
                 Pooled.Return(decoded);
             }
         }
 
-        private void DispatchDataEvent(NetConnection connection, byte channel, byte[] buffer, int offset, int count) {
+        private void DispatchDataEvent(NetConnection connection, ChannelConfig channelConfig, byte channel, byte[] buffer, int offset, int count) {
             if (_dispatcher.IsImmediate) {
                 RaiseData(connection, channel, buffer, offset, count); // straight from the network buffer
             }
-            else {
-                _dispatcher.QueueData(connection, channel, buffer, offset, count);
+            else if (!_dispatcher.QueueData(connection, channel, buffer, offset, count) && channelConfig.IsReliable) {
+                _logger.Error($"Event queue full: closing {connection} instead of losing a reliable message on channel {channel}");
+                CloseConnection(connection, DisconnectReason.Overloaded, notifyLinks: true);
             }
         }
 
@@ -505,9 +506,26 @@ namespace NetSync.Peers {
 
         /// <summary>Sends to every open connection; individual failures are logged, not thrown.</summary>
         public async Task BroadcastAsync(byte channel, ReadOnlyMemory<byte> data, CancellationToken ct = default) {
+            // Every connection gets the message before any is awaited: one that has to wait
+            // (a slow client, a full window) doesn't hold the others up.
+            List<(NetConnection Connection, ValueTask Send)>? waiting = null;
             foreach (var connection in _connections.Values) {
                 try {
-                    await SendAsync(connection, channel, data, ct).ConfigureAwait(false);
+                    var send = SendAsync(connection, channel, data, ct);
+                    if (!send.IsCompletedSuccessfully) {
+                        (waiting ??= new List<(NetConnection, ValueTask)>()).Add((connection, send));
+                    }
+                }
+                catch (Exception ex) {
+                    _logger.Debug($"Broadcast to {connection}: {ex.Message}");
+                }
+            }
+            if (waiting == null) {
+                return;
+            }
+            foreach (var (connection, send) in waiting) {
+                try {
+                    await send.ConfigureAwait(false);
                 }
                 catch (Exception ex) {
                     _logger.Debug($"Broadcast to {connection}: {ex.Message}");

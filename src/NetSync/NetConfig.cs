@@ -110,6 +110,10 @@ namespace NetSync {
 
         internal bool NeedsTransform => Compression || Encryption;
 
+        /// <summary>The channel promises delivery: a stream slot, or a reliable mode on the datagram slot.</summary>
+        internal bool IsReliable => Transport == TransportType.Tcp ||
+                                    Reliability == ReliabilityMode.Reliable || Reliability == ReliabilityMode.ReliableOrdered;
+
         public ChannelConfig() { }
 
         public ChannelConfig(TransportType transport, ReliabilityMode reliability = ReliabilityMode.Unreliable,
@@ -184,9 +188,11 @@ namespace NetSync {
         public int WriteTimeoutMs { get; set; } = 15000;
 
         /// <summary>
-        /// Polled mode only: cap on undelivered events. When PollEvents() isn't called
-        /// for a while, data events beyond the cap are dropped (with a warning) instead
-        /// of growing memory without bound. Connect/disconnect events are never dropped.
+        /// Polled mode only: cap on undelivered events, so memory can't grow without bound when
+        /// PollEvents() isn't called for a while. Beyond the cap, messages of unreliable channels
+        /// are dropped (with a warning); a message of a reliable channel closes its connection
+        /// with <see cref="Transports.DisconnectReason.Overloaded"/> instead of being lost
+        /// silently. Connect/disconnect events are never dropped.
         /// </summary>
         public int MaxPendingEvents { get; set; } = 100_000;
 

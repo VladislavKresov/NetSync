@@ -24,8 +24,10 @@ namespace NetSync.Peers {
     /// which are rare, keep their closures).
     ///
     /// The Polled queue is bounded: if the application stops polling (paused game,
-    /// forgotten call) data events beyond the cap are dropped with a warning instead of
-    /// growing memory forever. Lifecycle events (connect/disconnect) are never dropped.
+    /// forgotten call) memory must not grow forever. Beyond the cap, events of unreliable
+    /// channels are dropped with a warning; for a reliable channel the caller is told and
+    /// closes the connection — a reliable message is never lost silently. Lifecycle
+    /// events (connect/disconnect) are never dropped.
     /// </summary>
     internal sealed class EventDispatcher {
         private struct QueuedEvent {
@@ -85,18 +87,20 @@ namespace NetSync.Peers {
 
         /// <summary>
         /// Polled mode: queues a data event, copying the payload into a pooled buffer
-        /// (the caller's buffer is only valid during this call). May drop when full.
+        /// (the caller's buffer is only valid during this call). False = the queue is full
+        /// and the event was not queued.
         /// </summary>
-        public void QueueData(object? source, byte channel, byte[] buffer, int offset, int count) {
+        public bool QueueData(object? source, byte channel, byte[] buffer, int offset, int count) {
             if (_queue == null) {
                 throw new InvalidOperationException("QueueData is for Polled mode");
             }
             if (!TryReserveDataSlot()) {
-                return;
+                return false;
             }
             var copy = Pooled.Rent(count);
             Buffer.BlockCopy(buffer, offset, copy, 0, count);
             Enqueue(new QueuedEvent { Source = source, Channel = channel, Buffer = copy, Length = count });
+            return true;
         }
 
         private bool TryReserveDataSlot() {
@@ -105,8 +109,8 @@ namespace NetSync.Peers {
             }
             Interlocked.Increment(ref _dropped);
             if (Interlocked.Exchange(ref _overflowLogged, 1) == 0) {
-                _logger.Warning($"Event queue full ({_maxPendingEvents} pending): dropping data events. " +
-                                "Is PollEvents() being called?");
+                _logger.Warning($"Event queue full ({_maxPendingEvents} pending): dropping events of unreliable channels, " +
+                                "closing connections that receive reliable data. Is PollEvents() being called?");
             }
             return false;
         }
