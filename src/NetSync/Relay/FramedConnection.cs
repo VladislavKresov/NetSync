@@ -21,6 +21,7 @@ namespace NetSync.Relay {
         private readonly TcpClient _client;
         private readonly NetworkStream _stream;
         private readonly INetLogger _logger;
+        private readonly TaskCompletionSource<bool> _receiveEnded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _closed;
 
         public SendQueue Queue { get; }
@@ -141,6 +142,7 @@ namespace NetSync.Relay {
             }
             finally {
                 buffer.Dispose();
+                _receiveEnded.TrySetResult(true);
             }
         }
 
@@ -150,9 +152,25 @@ namespace NetSync.Relay {
             return timeoutMs > 0 && started != 0 && NetTime.NowMs - started > timeoutMs;
         }
 
-        /// <summary>Writes what is already queued (bounded wait), then closes.</summary>
+        /// <summary>
+        /// Closes without losing what is already queued: writes it (bounded wait), ends our
+        /// side of the stream, and gives the remote the rest of the time to read it and close.
+        ///
+        /// Closing the socket right after the last write is not enough: the bytes may still sit
+        /// in the kernel's send buffer, and a close with a read pending discards them on some
+        /// platforms (the connection is reset instead of finished).
+        /// </summary>
         public async Task DisposeAfterFlushAsync(int timeoutMs) {
+            long deadline = NetTime.NowMs + timeoutMs;
             await Queue.WaitUntilIdleAsync(timeoutMs).ConfigureAwait(false);
+            try {
+                _client.Client.Shutdown(SocketShutdown.Send); // everything written, then end-of-stream
+                int remaining = (int)Math.Max(0, deadline - NetTime.NowMs);
+                await Task.WhenAny(_receiveEnded.Task, Task.Delay(remaining)).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is SocketException || ex is ObjectDisposedException) {
+                // already gone
+            }
             Dispose();
         }
 
