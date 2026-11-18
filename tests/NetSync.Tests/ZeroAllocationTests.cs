@@ -128,13 +128,21 @@ namespace NetSync.Tests {
             }
 
             PingPong(3000); // warm-up: JIT, pools, thread-pool growth
+
+            // The counter is process-wide, and the test host shares the process: while it reports
+            // finished tests it allocates tens of KB per second. A slow machine stretches every
+            // window and catches more of that, so each window starts once the process is quiet —
+            // nothing is subtracted: whatever the data path allocates still counts in full.
             const int measured = 5_000;
             double best = double.MaxValue;
             for (int window = 0; window < 4 && best >= 8; window++) {
+                double quietMs = WaitUntilQuiet();
                 long before = GC.GetTotalAllocatedBytes(precise: true);
+                var clock = Stopwatch.StartNew();
                 PingPong(measured);
+                double elapsedMs = clock.Elapsed.TotalMilliseconds;
                 double perMessage = (GC.GetTotalAllocatedBytes(precise: true) - before) / (double)measured;
-                _output.WriteLine($"{label}, window {window}: {perMessage:F1} B per round trip");
+                _output.WriteLine($"{label}, window {window}: {perMessage:F1} B per round trip ({elapsedMs:F0} ms, quiet after {quietMs:F0} ms)");
                 best = Math.Min(best, perMessage);
             }
             if (best >= 8) {
@@ -145,6 +153,22 @@ namespace NetSync.Tests {
                 _output.WriteLine($"{label}, sampled allocations (one sample per ~100 KB): {sampler.Report()}");
             }
             return best;
+        }
+
+        /// <summary>
+        /// Waits (up to 30 s) for a 250 ms stretch in which the process allocates under 4 KB — the
+        /// connections' keepalive alone stays well below. Returns how long that took.
+        /// </summary>
+        private static double WaitUntilQuiet() {
+            var clock = Stopwatch.StartNew();
+            while (clock.ElapsedMilliseconds < 30_000) {
+                long before = GC.GetTotalAllocatedBytes(precise: true);
+                Thread.Sleep(250);
+                if (GC.GetTotalAllocatedBytes(precise: true) - before < 4096) {
+                    break;
+                }
+            }
+            return clock.Elapsed.TotalMilliseconds;
         }
 
         /// <summary>Counts the runtime's GC allocation-tick samples by type.</summary>
