@@ -179,6 +179,7 @@ namespace NetSync.Pipeline.Reliability {
         private readonly int _retransmitScanMs;
         private readonly int _rtoFloorMs;
         private readonly int _rtoCeilingMs;
+        private readonly int _deadAfterMs;
         private readonly List<PendingPacket> _due = new List<PendingPacket>(); // clock thread only
         private long _lastScanMs;
         private int _started;
@@ -201,9 +202,11 @@ namespace NetSync.Pipeline.Reliability {
             int maxMessageSize = NetConfig.DefaultMaxMessageSize,
             int rtoFloorMs = 30,
             int rtoCeilingMs = 3000,
-            bool congestionControl = true)
+            bool congestionControl = true,
+            int deadAfterMs = 0)
             : this(channels, sendAsync, (channel, buffer, offset, count) => deliver(channel, Pooled.ToArray(buffer, offset, count)),
-                   getPingMs, onDead, logger, maxRetransmits, retransmitScanMs, maxMessageSize, rtoFloorMs, rtoCeilingMs, congestionControl) { }
+                   getPingMs, onDead, logger, maxRetransmits, retransmitScanMs, maxMessageSize, rtoFloorMs, rtoCeilingMs, congestionControl,
+                   deadAfterMs) { }
 
         public ReliableEndpoint(
             Dictionary<byte, ChannelConfig> channels,
@@ -217,8 +220,10 @@ namespace NetSync.Pipeline.Reliability {
             int maxMessageSize = NetConfig.DefaultMaxMessageSize,
             int rtoFloorMs = 30,
             int rtoCeilingMs = 3000,
-            bool congestionControl = true) {
+            bool congestionControl = true,
+            int deadAfterMs = 0) {
             _sendAsync = sendAsync;
+            _deadAfterMs = Math.Max(0, deadAfterMs);
             _deliver = deliver;
             _getPingMs = getPingMs;
             _onDead = onDead;
@@ -918,7 +923,10 @@ namespace NetSync.Pipeline.Reliability {
                             if (now - pending.LastSentAtMs < rto) {
                                 continue;
                             }
-                            if (pending.Attempts >= _maxRetransmits) {
+                            // Dead only when the packet has also gone unanswered for as long as the
+                            // link's keepalive tolerates silence: the number of attempts alone depends
+                            // on how short the timeout was, i.e. on how fast the machine happened to be.
+                            if (pending.Attempts >= _maxRetransmits && now - pending.FirstSentAtMs >= _deadAfterMs) {
                                 dead = true;
                                 break;
                             }
@@ -927,9 +935,10 @@ namespace NetSync.Pipeline.Reliability {
                             pending.InFlight++;
                             due.Add(pending);
                         }
-                        if (due.Count > 0 && sender.Congestion != null) {
+                        if (due.Count > 0) {
                             lock (_rttLock) {
-                                sender.Congestion.OnLoss(_rtt, now);
+                                sender.Congestion?.OnLoss(_rtt, now);
+                                _rtt.OnTimeout(now, baseRto);
                             }
                         }
                     }
@@ -945,7 +954,7 @@ namespace NetSync.Pipeline.Reliability {
                     }
                     due.Clear();
                     if (dead) {
-                        _logger.Warning($"Reliable link dead: packet unacked after {_maxRetransmits} retransmits");
+                        _logger.Warning($"Reliable link dead: packet unacked after {_maxRetransmits} retransmits and {_deadAfterMs} ms");
                         SignalDead(DisconnectReason.Timeout);
                         return;
                     }

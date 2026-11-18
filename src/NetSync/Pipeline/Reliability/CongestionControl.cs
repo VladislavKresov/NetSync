@@ -16,8 +16,33 @@ namespace NetSync.Pipeline.Reliability {
         private double _minCurrent = double.MaxValue;
         private double _minPrevious = double.MaxValue;
         private long _bucketStartMs;
+        private int _backoff = 1;
+        private long _nextBackoffAtMs;
+
+        /// <summary>Largest factor a run of timeouts multiplies the retransmission timeout by.</summary>
+        public const int MaxBackoff = 64;
 
         public bool HasSample => _hasSample;
+
+        /// <summary>
+        /// A retransmission timer fired (RFC 6298, 5.5): the timeout stays doubled for every
+        /// packet — not just the one that timed out — until an acknowledgement brings a new
+        /// valid sample. Without this, a link whose acknowledgements are merely slow (a busy
+        /// receiver, a congested queue) keeps timing out at the old short timeout, and every
+        /// spurious retransmission adds to the load that delays the acknowledgements: a storm.
+        /// Retransmitted packets give no samples (Karn), so only this backoff lets the timeout grow.
+        /// Doubles at most once per timeout period, like TCP's single timer: packets sent a little
+        /// apart expire on consecutive scans, and that is one timeout, not several.
+        /// </summary>
+        /// <param name="nowMs">Current time.</param>
+        /// <param name="timeoutMs">The (backed-off) retransmission timeout that just expired.</param>
+        public void OnTimeout(long nowMs, int timeoutMs) {
+            if (nowMs < _nextBackoffAtMs) {
+                return;
+            }
+            _backoff = Math.Min(_backoff * 2, MaxBackoff);
+            _nextBackoffAtMs = nowMs + 2L * timeoutMs;
+        }
         public double SmoothedRtt => _srtt;
 
         /// <summary>Minimum RTT over the last 30–60 s (route changes age out).</summary>
@@ -27,6 +52,8 @@ namespace NetSync.Pipeline.Reliability {
         public double QueueingDelay => _hasSample ? Math.Max(0, _srtt - BaseRtt) : 0;
 
         public void AddSample(double rttMs, long nowMs) {
+            _backoff = 1; // a valid sample: the measured timeout is trustworthy again
+            _nextBackoffAtMs = 0;
             rttMs = Math.Max(rttMs, 0.1);
             if (!_hasSample) {
                 _srtt = rttMs;
@@ -48,10 +75,8 @@ namespace NetSync.Pipeline.Reliability {
         }
 
         public int RetransmitTimeoutMs(int floorMs, int ceilingMs, int fallbackMs) {
-            if (!_hasSample) {
-                return Math.Clamp(fallbackMs, floorMs, ceilingMs);
-            }
-            return (int)Math.Clamp(_srtt + Math.Max(4 * _rttVar, 10), floorMs, ceilingMs);
+            double measured = _hasSample ? _srtt + Math.Max(4 * _rttVar, 10) : fallbackMs;
+            return (int)Math.Clamp(Math.Max(measured, floorMs) * _backoff, floorMs, ceilingMs);
         }
     }
 

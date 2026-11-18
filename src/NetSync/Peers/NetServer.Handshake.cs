@@ -114,7 +114,8 @@ namespace NetSync.Peers {
                     () => capturedConnection.GetPing(TransportType.Udp),
                     reason => CloseConnection(capturedConnection, reason, notifyLinks: true),
                     _logger,
-                    maxMessageSize: _config.WireMessageLimit);
+                    maxMessageSize: _config.WireMessageLimit,
+                    deadAfterMs: _config.PingTimeoutMs);
                 // The peer's own transport reports datagram boundaries (see CreateServerTransport).
                 connection.Reliable.DeferAcks = peer.Owner is IDatagramBoundaryServerTransport;
                 connection.Reliable.Start();

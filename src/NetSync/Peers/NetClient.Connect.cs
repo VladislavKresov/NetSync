@@ -74,7 +74,8 @@ namespace NetSync.Peers {
                         () => udpLink.PingMs,
                         reason => CloseSession(session, reason, raiseEvent: true),
                         _logger,
-                        maxMessageSize: _config.WireMessageLimit);
+                        maxMessageSize: _config.WireMessageLimit,
+                    deadAfterMs: _config.PingTimeoutMs);
                     if (udpLink is IDatagramBoundaryTransport bounded) {
                         var reliable = session.Reliable;
                         reliable.DeferAcks = true;
