@@ -44,6 +44,7 @@ namespace NetSync.Transports.Simulation {
         private readonly NetworkSimulation _simulation;
         private readonly bool _datagram;
         private readonly Random _random;
+        private readonly SimulationLane _lane = new SimulationLane();
         private double _lastDueMs; // streams: never deliver before an earlier packet (FIFO)
 
         public Impairment(NetworkSimulation simulation, bool datagram) {
@@ -80,18 +81,27 @@ namespace NetSync.Transports.Simulation {
                     _lastDueMs = dueFirst;
                 }
             }
-            SimulationClock.Schedule(dueFirst, deliver);
+            _lane.Schedule(dueFirst, deliver);
             if (copies == 2) {
-                SimulationClock.Schedule(dueSecond, deliver);
+                _lane.Schedule(dueSecond, deliver);
             }
         }
     }
 
     /// <summary>
-    /// One background thread delivering delayed packets on time. Waits coarsely and spins
-    /// the last stretch: OS timers (15.6 ms on Windows) would distort small latencies.
+    /// Delivers the delayed packets of one direction of one link, in due order, on its own
+    /// thread — like the receive loop of a real link. One lane can't hold up another: a slow
+    /// handler on one connection delays only that connection, as on a real network.
+    ///
+    /// The thread sleeps until the next packet is due rather than spinning, so the simulator
+    /// costs no CPU of its own. Sleeps last a whole timer tick, 15.6 ms by default on Windows,
+    /// so while a lane runs there it asks for 1 ms ticks (affects this process only, since
+    /// Windows 10 2004). The thread ends after a few idle seconds and starts again with the
+    /// next packet.
     /// </summary>
-    internal static class SimulationClock {
+    internal sealed class SimulationLane {
+        private const int IdleExitMs = 5000;
+
         private readonly struct Item {
             public readonly double DueMs;
             public readonly long Sequence; // FIFO among equal due times
@@ -106,42 +116,42 @@ namespace NetSync.Transports.Simulation {
             public bool Before(in Item other) => DueMs < other.DueMs || (DueMs == other.DueMs && Sequence < other.Sequence);
         }
 
-        private static readonly object Lock = new object();
-        private static readonly List<Item> Heap = new List<Item>();
-        private static Thread? _thread;
-        private static long _sequence;
+        private readonly object _lock = new object();
+        private readonly List<Item> _heap = new List<Item>();
+        private Thread? _thread;
+        private long _sequence;
 
-        public static void Schedule(double dueMs, Action action) {
-            lock (Lock) {
+        public void Schedule(double dueMs, Action action) {
+            lock (_lock) {
                 Push(new Item(dueMs, _sequence++, action));
                 if (_thread == null) {
                     _thread = new Thread(Run) { IsBackground = true, Name = "NetSync network simulation" };
                     _thread.Start();
                 }
-                Monitor.Pulse(Lock);
+                Monitor.Pulse(_lock);
             }
         }
 
-        private static void Run() {
+        private void Run() {
+            using var resolution = TimerResolution.Fine();
             while (true) {
-                Action? due = null;
-                lock (Lock) {
-                    if (Heap.Count == 0) {
-                        Monitor.Wait(Lock);
-                        continue;
+                Action due;
+                lock (_lock) {
+                    while (true) {
+                        if (_heap.Count == 0) {
+                            if (!Monitor.Wait(_lock, IdleExitMs) && _heap.Count == 0) {
+                                _thread = null; // the next Schedule starts a new one
+                                return;
+                            }
+                            continue;
+                        }
+                        double wait = _heap[0].DueMs - NetTime.PreciseMs;
+                        if (wait <= 0) {
+                            due = Pop().Action;
+                            break;
+                        }
+                        Monitor.Wait(_lock, Math.Max(1, (int)Math.Ceiling(wait)));
                     }
-                    double wait = Heap[0].DueMs - NetTime.PreciseMs;
-                    if (wait <= 0) {
-                        due = Pop().Action;
-                    }
-                    else if (wait > 20) {
-                        Monitor.Wait(Lock, (int)(wait - 16));
-                        continue;
-                    }
-                }
-                if (due == null) {
-                    Thread.Yield(); // final approach
-                    continue;
                 }
                 try {
                     due();
@@ -152,43 +162,74 @@ namespace NetSync.Transports.Simulation {
             }
         }
 
-        private static void Push(Item item) {
-            Heap.Add(item);
-            int i = Heap.Count - 1;
+        private void Push(Item item) {
+            _heap.Add(item);
+            int i = _heap.Count - 1;
             while (i > 0) {
                 int parent = (i - 1) / 2;
-                if (!Heap[i].Before(Heap[parent])) {
+                if (!_heap[i].Before(_heap[parent])) {
                     break;
                 }
-                (Heap[i], Heap[parent]) = (Heap[parent], Heap[i]);
+                (_heap[i], _heap[parent]) = (_heap[parent], _heap[i]);
                 i = parent;
             }
         }
 
-        private static Item Pop() {
-            var top = Heap[0];
-            int last = Heap.Count - 1;
-            Heap[0] = Heap[last];
-            Heap.RemoveAt(last);
+        private Item Pop() {
+            var top = _heap[0];
+            int last = _heap.Count - 1;
+            _heap[0] = _heap[last];
+            _heap.RemoveAt(last);
             int i = 0;
             while (true) {
                 int left = 2 * i + 1;
                 int right = left + 1;
                 int smallest = i;
-                if (left < Heap.Count && Heap[left].Before(Heap[smallest])) {
+                if (left < _heap.Count && _heap[left].Before(_heap[smallest])) {
                     smallest = left;
                 }
-                if (right < Heap.Count && Heap[right].Before(Heap[smallest])) {
+                if (right < _heap.Count && _heap[right].Before(_heap[smallest])) {
                     smallest = right;
                 }
                 if (smallest == i) {
                     break;
                 }
-                (Heap[i], Heap[smallest]) = (Heap[smallest], Heap[i]);
+                (_heap[i], _heap[smallest]) = (_heap[smallest], _heap[i]);
                 i = smallest;
             }
             return top;
         }
+    }
+
+    /// <summary>1 ms OS timer ticks while held (Windows; elsewhere sleeps are already that precise).</summary>
+    internal readonly struct TimerResolution : IDisposable {
+        private readonly bool _held;
+
+        private TimerResolution(bool held) => _held = held;
+
+        public static TimerResolution Fine() {
+            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)) {
+                return default;
+            }
+            try {
+                return new TimerResolution(timeBeginPeriod(1) == 0);
+            }
+            catch (Exception) { // no winmm (Nano Server, some sandboxes): coarse ticks, still correct
+                return default;
+            }
+        }
+
+        public void Dispose() {
+            if (_held) {
+                timeEndPeriod(1);
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("winmm.dll")]
+        private static extern uint timeBeginPeriod(uint milliseconds);
+
+        [System.Runtime.InteropServices.DllImport("winmm.dll")]
+        private static extern uint timeEndPeriod(uint milliseconds);
     }
 
     internal sealed class SimulatedClientTransport : ITransport {
