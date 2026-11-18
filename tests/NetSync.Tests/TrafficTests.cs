@@ -68,8 +68,63 @@ namespace NetSync.Tests {
             _output.WriteLine($"with CC:    {ccRatio:P1} retransmitted, {ccSeconds:F2} s");
             _output.WriteLine($"without CC: {rawRatio:P1} retransmitted, {rawSeconds:F2} s");
 
-            Assert.True(ccRatio < 0.15, $"with congestion control {ccRatio:P1} of packets were retransmitted");
+            // Relative only: in real time a busy machine delivers acknowledgements in bursts and
+            // adds losses of its own, whatever the protocol does. The absolute level is checked
+            // in virtual time by Congestion_Window_Keeps_Bottleneck_Losses_Low.
             Assert.True(ccRatio < rawRatio / 2, $"CC {ccRatio:P1} vs no CC {rawRatio:P1}");
+        }
+
+        [Fact]
+        public void Congestion_Window_Keeps_Bottleneck_Losses_Low() {
+            double cc = SimulateLossRatio(congestionControl: true);
+            double raw = SimulateLossRatio(congestionControl: false);
+            _output.WriteLine($"packets lost in virtual time: with CC {cc:P1}, without CC {raw:P1}");
+
+            Assert.True(cc < 0.05, $"with congestion control {cc:P1} of packets were lost");
+            Assert.True(cc < raw / 2, $"CC {cc:P1} vs no CC {raw:P1}");
+        }
+
+        /// <summary>
+        /// A bulk sender on the 50 ms drop-tail bottleneck of the real-time test above, in virtual
+        /// time: the share of packets the queue drops (each one a retransmission).
+        /// </summary>
+        private static double SimulateLossRatio(bool congestionControl) {
+            const double bytesPerMs = 2000, packetBytes = 1100, oneWayMs = 10, queueLimitMs = 50, durationMs = 10_000;
+            var rtt = new RttEstimator();
+            var window = new CongestionWindow(background: false, maxWindow: ReliableEndpoint.WindowSize);
+            var events = new PriorityQueue<(bool Lost, double SentAtMs), double>();
+            double now = 0, lastDeparture = 0;
+            int inFlight = 0, sent = 0, lost = 0;
+
+            void Fill() {
+                int allowed = congestionControl ? window.AllowedInFlight : ReliableEndpoint.WindowSize;
+                while (inFlight < allowed) {
+                    inFlight++;
+                    sent++;
+                    if (Math.Max(0, lastDeparture - now) > queueLimitMs) {
+                        lost++;
+                        events.Enqueue((true, now), now + queueLimitMs + 2 * oneWayMs); // noticed about an RTT later
+                        continue;
+                    }
+                    lastDeparture = Math.Max(now, lastDeparture) + packetBytes / bytesPerMs;
+                    events.Enqueue((false, now), lastDeparture + 2 * oneWayMs);
+                }
+            }
+
+            Fill();
+            while (now < durationMs && events.TryDequeue(out var item, out double at)) {
+                now = at;
+                inFlight--;
+                if (item.Lost) {
+                    window.OnLoss(rtt, (long)now);
+                }
+                else {
+                    rtt.AddSample(now - item.SentAtMs, (long)now);
+                    window.OnAcked(1, rtt, (long)now);
+                }
+                Fill();
+            }
+            return (double)lost / sent;
         }
 
         private async Task<(double RetransmitRatio, double Seconds)> MeasureBulkTransferAsync(bool congestionControl) {

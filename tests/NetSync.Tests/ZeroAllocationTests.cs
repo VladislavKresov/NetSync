@@ -19,6 +19,13 @@ namespace NetSync.Tests {
 
         public ZeroAllocationTests(ITestOutputHelper output) => _output = output;
 
+        /// <summary>A Debug build compiles every async method's state machine as a class: it allocates per call.</summary>
+        private static readonly string BuildNote =
+            System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Diagnostics.DebuggableAttribute>(typeof(NetConfig).Assembly)
+                ?.IsJITOptimizerDisabled == true
+                ? " — this is a Debug build, whose async methods allocate; measure with -c Release"
+                : "";
+
         private static NetConfig MakeConfig(bool authenticated = false) {
             var config = new NetConfig { EventDelivery = EventDelivery.Immediate, PingIntervalMs = 1000 };
             config.Channels[0] = new ChannelConfig(TransportType.Tcp);
@@ -47,11 +54,11 @@ namespace NetSync.Tests {
             int port = await server.StartAsync(0);
 
             using var client = new NetClient(MakeConfig(authenticated));
-            int echoes = 0;
-            client.MessageReceived += (ch, data) => Interlocked.Increment(ref echoes);
+            using var echoes = new EchoCounter();
+            client.MessageReceived += (ch, data) => echoes.Add();
             await client.ConnectAsync("127.0.0.1", port);
 
-            double best = MeasureRoundTrip(client, channel, () => Volatile.Read(ref echoes), $"channel {channel}, authenticated={authenticated}");
+            double best = MeasureRoundTrip(client, channel, echoes, $"channel {channel}, authenticated={authenticated}");
             // Two messages per round trip (request + echo) through client and server. A single
             // per-message array would be >= 90 B; the budget only absorbs background timers.
             double budget = 16;
@@ -63,7 +70,7 @@ namespace NetSync.Tests {
                 budget = 160 * datagramsPerRoundTrip;
             }
 #endif
-            Assert.True(best < budget, $"{best:F1} B allocated per round trip (budget {budget})");
+            Assert.True(best < budget, $"{best:F1} B allocated per round trip (budget {budget}){BuildNote}");
             await server.StopAsync();
         }
 
@@ -72,25 +79,51 @@ namespace NetSync.Tests {
         /// windows: the first window of a fresh process can still catch one-time costs
         /// (pool buckets filled on new threads, tiering).
         /// </summary>
-        private double MeasureRoundTrip(NetClient client, byte channel, Func<int> echoes, string label) {
+        /// <summary>Counts echoes and wakes the waiting measurement loop (without allocating).</summary>
+        private sealed class EchoCounter : IDisposable {
+            private readonly ManualResetEventSlim _arrived = new ManualResetEventSlim(false, spinCount: 0);
+            private int _count;
+
+            public int Count => Volatile.Read(ref _count);
+
+            public void Add() {
+                Interlocked.Increment(ref _count);
+                _arrived.Set();
+            }
+
+            /// <summary>Waits until the count reaches <paramref name="target"/>; false after the timeout.</summary>
+            public bool WaitFor(int target, int timeoutMs) {
+                long deadline = Stopwatch.GetTimestamp() + timeoutMs * Stopwatch.Frequency / 1000;
+                while (Count < target) {
+                    long left = (deadline - Stopwatch.GetTimestamp()) * 1000 / Stopwatch.Frequency;
+                    if (left <= 0) {
+                        return false;
+                    }
+                    _arrived.Wait((int)left);
+                    _arrived.Reset();
+                }
+                return true;
+            }
+
+            public void Dispose() => _arrived.Dispose();
+        }
+
+        private double MeasureRoundTrip(NetClient client, byte channel, EchoCounter echoes, string label) {
             var payload = new byte[64];
             return MeasureRoundTrip(() => client.SendAsync(channel, payload), echoes, label);
         }
 
-        private double MeasureRoundTrip(Func<ValueTask> sendOne, Func<int> echoes, string label) {
-            // Spin-waits: the measuring loop itself must not allocate (an awaited timeout would).
+        private double MeasureRoundTrip(Func<ValueTask> sendOne, EchoCounter echoes, string label) {
+            // Blocking waits: the measuring loop itself must not allocate (an awaited timeout would),
+            // and must not spin either — other test processes share the machine's cores.
             void PingPong(int count) {
                 for (int i = 0; i < count; i++) {
-                    int target = echoes() + 1;
+                    int target = echoes.Count + 1;
                     var send = sendOne();
                     if (!send.IsCompletedSuccessfully) {
                         send.AsTask().GetAwaiter().GetResult();
                     }
-                    long deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency; // 1 s: a lost datagram
-                    var spin = new SpinWait();
-                    while (echoes() < target && Stopwatch.GetTimestamp() < deadline) {
-                        spin.SpinOnce(sleep1Threshold: -1); // never Sleep(1): 15 ms on Windows
-                    }
+                    echoes.WaitFor(target, 1000); // 1 s: a lost datagram
                 }
             }
 
@@ -131,17 +164,17 @@ namespace NetSync.Tests {
 
             using var client = new NetClient(MakeConfig());
             using var clientMessenger = new NetSync.Messaging.NetClientMessenger(client, registry);
-            int echoes = 0;
-            clientMessenger.On<Position>(position => Interlocked.Increment(ref echoes));
+            using var echoes = new EchoCounter();
+            clientMessenger.On<Position>(position => echoes.Add());
             await client.ConnectAsync("127.0.0.1", port);
 
             var message = new Position { Id = 7, X = 1, Y = 2, Z = 3 };
-            double best = MeasureRoundTrip(() => clientMessenger.SendAsync(1, message), () => Volatile.Read(ref echoes), "typed UDP messages");
+            double best = MeasureRoundTrip(() => clientMessenger.SendAsync(1, message), echoes, "typed UDP messages");
             double budget = 16;
 #if CORE_NETSTANDARD
             budget = 160 * 2; // the UDP server's endpoint per datagram (see Echo_Steady_State)
 #endif
-            Assert.True(best < budget, $"{best:F1} B allocated per typed round trip (budget {budget})");
+            Assert.True(best < budget, $"{best:F1} B allocated per typed round trip (budget {budget}){BuildNote}");
         }
 
         [Theory]
@@ -167,14 +200,14 @@ namespace NetSync.Tests {
             clientConfig.TransportFactories[TransportType.Tcp] = clientRoom.Tcp;
             clientConfig.TransportFactories[TransportType.Udp] = clientRoom.Udp;
             using var client = new NetClient(clientConfig);
-            int echoes = 0;
-            client.MessageReceived += (ch, data) => Interlocked.Increment(ref echoes);
+            using var echoes = new EchoCounter();
+            client.MessageReceived += (ch, data) => echoes.Add();
             await client.ConnectAsync(relayEndPoint);
             if (direct) {
                 await Task.Delay(1000); // punching runs in the background
             }
 
-            double best = MeasureRoundTrip(client, channel, () => Volatile.Read(ref echoes), $"relay channel {channel}, direct={direct}");
+            double best = MeasureRoundTrip(client, channel, echoes, $"relay channel {channel}, direct={direct}");
             double budget = 16;
 #if CORE_NETSTANDARD
             if (channel != 0) {
@@ -184,7 +217,7 @@ namespace NetSync.Tests {
                 budget = 160 * datagrams * (direct ? 2 : 4);
             }
 #endif
-            Assert.True(best < budget, $"{best:F1} B allocated per round trip through the relay (budget {budget})");
+            Assert.True(best < budget, $"{best:F1} B allocated per round trip through the relay (budget {budget}){BuildNote}");
         }
 
         [Theory]

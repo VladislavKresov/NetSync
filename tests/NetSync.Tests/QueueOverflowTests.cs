@@ -31,9 +31,15 @@ namespace NetSync.Tests {
             await connect;
             var connection = await opened.Task;
 
-            // The application stops polling while 30 reliable messages arrive.
+            // The application stops polling while 30 reliable messages arrive. The client may close
+            // the connection while some of them are still being sent: those sends say so.
             for (byte i = 0; i < 30; i++) {
-                await connection.SendAsync(0, new[] { i });
+                try {
+                    await connection.SendAsync(0, new[] { i });
+                }
+                catch (System.InvalidOperationException) {
+                    break; // "The connection closed while the message was waiting to be sent"
+                }
             }
             Assert.True(await Eventually.HoldsAsync(() => !client.IsConnected), "the connection should close instead of dropping reliable data");
 

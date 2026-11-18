@@ -12,9 +12,13 @@ namespace NetSync.Tests {
     ///
     /// Virtual-time model: each packet's departure is computed from timestamps
     /// (serialization at <see cref="_bytesPerSecond"/> behind the packets already
-    /// queued), so the 15 ms Windows timer resolution doesn't distort it. A dedicated
+    /// queued), so the timer resolution doesn't distort the queue itself. A dedicated
     /// delivery thread hands packets to the target endpoint when due, one at a time,
-    /// just like a socket receive loop.
+    /// just like a socket receive loop. It sleeps until the next packet is due instead
+    /// of spinning: a spinning thread per pipe starves everything else on a small
+    /// machine (a CI runner), and the measurement then shows the starvation, not the
+    /// protocol. Packets due within one timer tick arrive together, as after any
+    /// scheduling delay on a real host.
     /// </summary>
     internal sealed class BottleneckPipe : IDisposable {
         private readonly struct InFlight {
@@ -73,21 +77,25 @@ namespace NetSync.Tests {
                 double departure = Math.Max(now, _lastDepartureMs) + serializationMs;
                 _lastDepartureMs = departure;
                 _queue.Enqueue(new InFlight(packet, departure + _delayMs));
+                Monitor.Pulse(_lock);
             }
             return default;
         }
 
         private void DeliveryLoop() {
             while (!_stopped) {
-                InFlight? due = null;
+                InFlight item;
                 lock (_lock) {
-                    if (_queue.Count > 0 && _queue.Peek().DeliverAtMs <= NowMs) {
-                        due = _queue.Dequeue();
+                    if (_queue.Count == 0) {
+                        Monitor.Wait(_lock, 100);
+                        continue;
                     }
-                }
-                if (due is not { } item) {
-                    Thread.Sleep(0); // precise-ish pacing without a 15 ms timer tick
-                    continue;
+                    double wait = _queue.Peek().DeliverAtMs - NowMs;
+                    if (wait > 0) {
+                        Monitor.Wait(_lock, Math.Max(1, (int)Math.Ceiling(wait)));
+                        continue;
+                    }
+                    item = _queue.Dequeue();
                 }
                 var target = Target;
                 if (target == null) {
@@ -105,6 +113,9 @@ namespace NetSync.Tests {
 
         public void Dispose() {
             _stopped = true;
+            lock (_lock) {
+                Monitor.Pulse(_lock);
+            }
             _thread.Join(1000);
         }
     }
