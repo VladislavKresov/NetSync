@@ -231,7 +231,7 @@ namespace NetSync.Transports.Tcp {
                             }
                         }
 
-                        if (_settings.PingTimeoutMs > 0 && now - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                        if (peer.Silence.IsDead(peer.LastSeenMs, now, _settings)) {
                             RemovePeer(peer, DisconnectReason.Timeout);
                             continue;
                         }

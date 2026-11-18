@@ -192,7 +192,7 @@ namespace NetSync.Transports.WebSockets {
                             state.Link.SendPing();
                             peer.SetPing(state.Link.PingMs);
                         }
-                        if (_settings.PingTimeoutMs > 0 && now - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                        if (peer.Silence.IsDead(peer.LastSeenMs, now, _settings)) {
                             RemovePeer(peer, DisconnectReason.Timeout);
                             continue;
                         }

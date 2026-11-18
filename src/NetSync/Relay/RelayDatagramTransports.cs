@@ -41,6 +41,7 @@ namespace NetSync.Relay {
             public long LastDirectMs;
             public long LastPunchMs;
             public long LastPongAtMs = NetTime.NowMs;
+            public SilenceTracker Silence; // keepalive loop only
             public int DisconnectSignaled;
 
             public Connection(IDatagramSocket socket, IPEndPoint relay) {
@@ -275,7 +276,7 @@ namespace NetSync.Relay {
                 while (!ct.IsCancellationRequested) {
                     SendPing(connection);
                     long now = NetTime.NowMs;
-                    if (_settings.PingTimeoutMs > 0 && now - Volatile.Read(ref connection.LastPongAtMs) > _settings.PingTimeoutMs) {
+                    if (connection.Silence.IsDead(Volatile.Read(ref connection.LastPongAtMs), now, _settings)) {
                         connection.Metrics.IncrementPingTimeouts();
                         CloseConnection(connection, DisconnectReason.Timeout);
                         return;
@@ -689,7 +690,7 @@ namespace NetSync.Relay {
                                 PacketProtocol.Return(ping);
                             }
                         }
-                        if (_settings.PingTimeoutMs > 0 && now - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                        if (peer.Silence.IsDead(peer.LastSeenMs, now, _settings)) {
                             RemoveClient(record, DisconnectReason.Timeout);
                         }
                     }

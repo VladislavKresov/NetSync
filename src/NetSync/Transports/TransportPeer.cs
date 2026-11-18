@@ -19,6 +19,9 @@ namespace NetSync.Transports {
 
         private int _pingMs = -1;
         private long _lastSeenMs;
+
+        /// <summary>Keepalive bookkeeping of the transport's ping loop (that loop only).</summary>
+        internal SilenceTracker Silence;
         private int _trusted;
 
         /// <summary>Transport-specific state (e.g. the TCP socket and its send queue).</summary>

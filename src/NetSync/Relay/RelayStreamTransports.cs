@@ -321,7 +321,7 @@ namespace NetSync.Relay {
                             state.Link.SendPing();
                             peer.SetPing(state.Link.PingMs);
                         }
-                        if (_settings.PingTimeoutMs > 0 && now - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                        if (peer.Silence.IsDead(peer.LastSeenMs, now, _settings)) {
                             RemovePeer(kvp.Key, DisconnectReason.Timeout, notifyRelay: true);
                         }
                         else if (state.Link.CheckHealth(_settings, expectPongs: false) is { } problem) {

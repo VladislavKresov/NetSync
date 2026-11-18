@@ -40,6 +40,7 @@ namespace NetSync.Transports.Tcp {
             public readonly FragmentBuffer FragmentBuffer;
             public readonly NetMetrics Metrics = new NetMetrics();
             public long LastPongAtMs = NetTime.NowMs;
+            public SilenceTracker Silence; // keepalive loop only
             public int DisconnectSignaled; // 0 = live, 1 = disconnect already handled
 
             public Connection(TcpClient client, TransportSettings settings) {
@@ -263,7 +264,7 @@ namespace NetSync.Transports.Tcp {
                     }
 
                     long now = NetTime.NowMs;
-                    if (_settings.PingTimeoutMs > 0 && now - Volatile.Read(ref connection.LastPongAtMs) > _settings.PingTimeoutMs) {
+                    if (connection.Silence.IsDead(Volatile.Read(ref connection.LastPongAtMs), now, _settings)) {
                         connection.Metrics.IncrementPingTimeouts();
                         CloseConnection(connection, DisconnectReason.Timeout);
                         return;

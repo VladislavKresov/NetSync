@@ -22,6 +22,7 @@ namespace NetSync.Transports {
         private readonly FragmentBuffer _fragments;
         private long _lastPongAtMs = NetTime.NowMs;
         private int _pingMs = -1;
+        private SilenceTracker _silence;
 
         /// <param name="writeMessage">Writes one complete message to the pipe (called by one drain loop at a time).</param>
         /// <param name="settings">Limits and logging.</param>
@@ -110,10 +111,10 @@ namespace NetSync.Transports {
             }
         }
 
-        /// <summary>Liveness check for a keepalive loop: null = fine, otherwise why the link is dead.</summary>
+        /// <summary>Liveness check, once per keepalive round: null = fine, otherwise why the link is dead.</summary>
         public string? CheckHealth(TransportSettings settings, bool expectPongs) {
             long now = NetTime.NowMs;
-            if (expectPongs && settings.PingTimeoutMs > 0 && now - LastPongAtMs > settings.PingTimeoutMs) {
+            if (expectPongs && _silence.IsDead(LastPongAtMs, now, settings)) {
                 Metrics.IncrementPingTimeouts();
                 return "no pong within the ping timeout";
             }

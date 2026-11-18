@@ -376,7 +376,7 @@ namespace NetSync.Transports.Udp {
                             }
                         }
 
-                        if (_settings.PingTimeoutMs > 0 && NetTime.NowMs - peer.LastSeenMs > _settings.PingTimeoutMs) {
+                        if (peer.Silence.IsDead(peer.LastSeenMs, NetTime.NowMs, _settings)) {
                             RemovePeer(peer, DisconnectReason.Timeout);
                         }
                     }

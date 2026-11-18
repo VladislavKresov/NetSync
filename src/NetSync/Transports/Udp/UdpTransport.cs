@@ -30,6 +30,7 @@ namespace NetSync.Transports.Udp {
             public readonly DatagramBatcher Batcher;
             public readonly DatagramBatcher.Target Target;
             public long LastPongAtMs = NetTime.NowMs;
+            public SilenceTracker Silence; // keepalive loop only
             public int DisconnectSignaled;
 
             public Connection(IPEndPoint remote, INetLogger logger) {
@@ -233,7 +234,7 @@ namespace NetSync.Transports.Udp {
                         PacketProtocol.Return(ping);
                     }
 
-                    if (_settings.PingTimeoutMs > 0 && NetTime.NowMs - Volatile.Read(ref connection.LastPongAtMs) > _settings.PingTimeoutMs) {
+                    if (connection.Silence.IsDead(Volatile.Read(ref connection.LastPongAtMs), NetTime.NowMs, _settings)) {
                         connection.Metrics.IncrementPingTimeouts();
                         CloseConnection(connection, DisconnectReason.Timeout);
                         return;
