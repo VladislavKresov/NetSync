@@ -28,11 +28,57 @@ namespace NetSync.Sending {
             public readonly byte[] Buffer;
             public readonly int Length;
             public readonly bool Pooled;
+            public readonly bool Batch; // a coalescing buffer from BatchBuffers
 
-            public Job(byte[] buffer, int length, bool pooled) {
+            public Job(byte[] buffer, int length, bool pooled, bool batch = false) {
                 Buffer = buffer;
                 Length = length;
                 Pooled = pooled;
+                Batch = batch;
+            }
+        }
+
+        /// <summary>
+        /// Coalescing buffers, shared by all queues. Not the shared array pool: that one keeps an
+        /// array per thread, and a drain loop rents on one thread-pool thread and returns on
+        /// another, so batches get stranded in thread caches and the pool allocates new 64 KB
+        /// arrays now and then — the more often, the slower the machine. Any thread can take
+        /// what any other returned here. Used once per batched write, so the lock is cheap.
+        /// </summary>
+        private static class BatchBuffers {
+            private const int MaxKept = 32;
+            private static readonly object Lock = new object();
+            private static readonly byte[]?[] Kept = new byte[MaxKept][];
+            private static int _count;
+
+            public static byte[] Rent(int size) {
+                lock (Lock) {
+                    while (_count > 0) {
+                        var buffer = Kept[--_count]!;
+                        Kept[_count] = null;
+                        if (buffer.Length == size) {
+                            return buffer;
+                        }
+                    }
+                }
+                return new byte[size];
+            }
+
+            public static void Return(byte[] buffer) {
+                lock (Lock) {
+                    if (_count < MaxKept) {
+                        Kept[_count++] = buffer;
+                    }
+                }
+            }
+        }
+
+        private static void Release(in Job job) {
+            if (job.Batch) {
+                BatchBuffers.Return(job.Buffer);
+            }
+            else if (job.Pooled) {
+                Pooled.Return(job.Buffer);
             }
         }
 
@@ -213,9 +259,7 @@ namespace NetSync.Sending {
                         }
                         finally {
                             Interlocked.Exchange(ref _writeStartedAtMs, 0);
-                            if (job.Pooled) {
-                                Pooled.Return(job.Buffer);
-                            }
+                            Release(job);
                         }
                     }
                 }
@@ -244,14 +288,14 @@ namespace NetSync.Sending {
                 Interlocked.Exchange(ref _writeStartedAtMs, NetTime.NowMs);
                 if (_coalesceBytes > 0 && first.Length < _coalesceBytes && PeekLocked(out var next) &&
                     first.Length + next.Length <= _coalesceBytes) {
-                    var batch = Pooled.Rent(_coalesceBytes);
+                    var batch = BatchBuffers.Rent(_coalesceBytes);
                     int length = Append(batch, 0, first);
                     while (PeekLocked(out next) && length + next.Length <= _coalesceBytes) {
                         TryDequeueLocked(out next);
                         length = Append(batch, length, next);
                         taken++;
                     }
-                    write = new Job(batch, length, pooled: true);
+                    write = new Job(batch, length, pooled: false, batch: true);
                 }
                 freed = _bytesFreed;
                 _bytesFreed = null;
