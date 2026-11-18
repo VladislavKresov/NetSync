@@ -23,11 +23,28 @@ namespace NetSync.Transports.Udp {
         private static readonly int[] Candidates = { 1472, 1452, 1400 };
 
         private const int AttemptsPerSize = 2;
+
+        private static readonly Lazy<bool> ForbidsFragmentation = new Lazy<bool>(() => {
+            try {
+                using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                socket.DontFragment = true;
+                return true;
+            }
+            catch (Exception ex) when (ex is SocketException || ex is NotSupportedException || ex is PlatformNotSupportedException) {
+                return false;
+            }
+        });
+
+        /// <summary>
+        /// Whether this OS lets a UDP socket forbid fragmentation. Without that a probe proves
+        /// nothing, so there is no probing (macOS: the runtime doesn't support the option).
+        /// </summary>
+        public static bool IsSupported => ForbidsFragmentation.Value;
         private const int ReplyHeaderSize = 7; // [MtuReply][nonce:4][size:2]
 
         /// <summary>The largest confirmed datagram size, or 0 when nothing could be confirmed.</summary>
         public static async Task<int> ProbeAsync(IPEndPoint server, int timeoutMs, CancellationToken ct) {
-            if (server.AddressFamily != AddressFamily.InterNetwork) {
+            if (server.AddressFamily != AddressFamily.InterNetwork || !IsSupported) {
                 return 0;
             }
             using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);

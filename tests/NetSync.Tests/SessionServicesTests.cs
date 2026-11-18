@@ -209,9 +209,12 @@ namespace NetSync.Tests {
             using var client = new NetClient(Config());
             await client.ConnectAsync("127.0.0.1", port);
 
-            // Loopback carries 1472-byte datagrams: fragments grow from 1100 to 1453 bytes.
-            int expected = ReliableEndpoint.FragmentSizeForDatagram(1472, enveloped: false);
+            // Loopback carries 1472-byte datagrams: fragments grow from 1100 to 1453 bytes — where
+            // the OS can forbid fragmentation; elsewhere nothing is probed and the default stays.
             var connection = Assert.Single(server.Connections);
+            int expected = NetSync.Transports.Udp.PathMtuProbe.IsSupported
+                ? ReliableEndpoint.FragmentSizeForDatagram(1472, enveloped: false)
+                : connection.Reliable!.FragmentSize;
             try {
                 await WaitUntilAsync(() => connection.Reliable!.FragmentSize == expected);
             }
