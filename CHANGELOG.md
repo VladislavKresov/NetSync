@@ -20,6 +20,8 @@ Versions follow [Semantic Versioning](https://semver.org). The wire protocol has
   - after a retransmission timeout the timeout stays doubled until a fresh acknowledgement arrives (as in TCP), so slow acknowledgements no longer cause storms of needless retransmissions;
   - a reliable channel gives up on a packet only after `PingTimeoutMs` of silence, not after a number of attempts alone;
   - keepalive counts the ping rounds the process actually ran: a local stall (a starved thread pool, a laptop waking up) is no longer blamed on the peer.
+- UDP sockets no longer use a receive timeout to stop (it could lose datagrams on Linux and macOS); closing wakes the receive loop instead.
+- Path MTU discovery is skipped where the OS can't forbid fragmentation (macOS): fragments keep the default size there.
 - `NetworkSimulation` delivers each direction of each link on its own thread, without spinning: a slow handler delays only its own link, and the simulator uses no CPU while waiting. On Windows it raises the timer resolution to 1 ms while it runs.
 
 ### Added
