@@ -47,8 +47,9 @@ namespace NetSync.Tests {
             Assert.DoesNotContain(clients, c => c.IsDegraded);
             double perConnectionKb = (GC.GetTotalMemory(forceFullCollection: true) - before) / 1024.0 / count;
             _output.WriteLine($"{perConnectionKb:F1} KB managed memory per connection (client + server side)");
-            // Guards against per-connection buffers sized for the worst case (once ~600 KB).
-            Assert.True(perConnectionKb < 200, $"{perConnectionKb:F1} KB per connection");
+            // Guards against per-connection buffers sized for the worst case (once ~600 KB). The
+            // runtime's own share differs by platform: about 100 KB on Windows, 220-230 KB on macOS.
+            Assert.True(perConnectionKb < 320, $"{perConnectionKb:F1} KB per connection");
 
             for (int i = 0; i < 5; i++) {
                 await server.BroadcastAsync(1, new byte[64]);
