@@ -16,6 +16,11 @@ Versions follow [Semantic Versioning](https://semver.org). The wire protocol has
 
 - A reliable message is never lost silently: with Polled delivery, when the event queue is full (`MaxPendingEvents`), the connection that receives data on a reliable channel is closed with the new `DisconnectReason.Overloaded`. Messages of unreliable channels are dropped as before.
 - `SendAsync` on a stream channel waits for room when the send queue is full instead of throwing: await your sends and a slow connection slows the sender down. `BroadcastAsync` hands the message to every connection before waiting for any of them.
+- A busy or paused process no longer drops healthy connections:
+  - after a retransmission timeout the timeout stays doubled until a fresh acknowledgement arrives (as in TCP), so slow acknowledgements no longer cause storms of needless retransmissions;
+  - a reliable channel gives up on a packet only after `PingTimeoutMs` of silence, not after a number of attempts alone;
+  - keepalive counts the ping rounds the process actually ran: a local stall (a starved thread pool, a laptop waking up) is no longer blamed on the peer.
+- `NetworkSimulation` delivers each direction of each link on its own thread, without spinning: a slow handler delays only its own link, and the simulator uses no CPU while waiting. On Windows it raises the timer resolution to 1 ms while it runs.
 
 ### Added
 - `NetConfig.AppId` and `NetConfig.AppProtocolVersion`: a server refuses clients of another application or application protocol version (`ConnectionRejection.ApplicationMismatch`).
