@@ -70,6 +70,7 @@ namespace NetSync.Transports.Udp {
         private readonly AsyncSignal _work = new AsyncSignal();
         private readonly CancellationTokenSource _lifetime = new CancellationTokenSource();
         private int _disposed;
+        private int _sendingThread;  // managed thread id of the drain loop while it sends taken batches, 0 = idle
         private int _corkThread;     // managed thread id of the corking receive thread, 0 = none
         private bool _wakeDeferred;  // the corking thread queued work and did not wake the loop
 
@@ -207,18 +208,26 @@ namespace NetSync.Transports.Udp {
                 while (!ct.IsCancellationRequested) {
                     await _work.WaitAsync().ConfigureAwait(false);
                     while (!ct.IsCancellationRequested && TryTake(out var target)) {
-                        foreach (var batch in _drained) {
-                            try {
-                                SendBatch(target, batch);
+                        try {
+                            foreach (var batch in _drained) {
+                                try {
+                                    SendBatch(target, batch);
+                                }
+                                catch (Exception ex) {
+                                    _logger.Debug($"UDP send failed: {ex.Message}");
+                                }
+                                finally {
+                                    Pooled.Return(batch.Buffer!);
+                                }
                             }
-                            catch (Exception ex) {
-                                _logger.Debug($"UDP send failed: {ex.Message}");
-                            }
-                            finally {
-                                Pooled.Return(batch.Buffer!);
+                            _drained.Clear();
+                        }
+                        finally {
+                            lock (_lock) {
+                                _sendingThread = 0;
+                                Monitor.PulseAll(_lock); // Dispose may be waiting for this round
                             }
                         }
-                        _drained.Clear();
                     }
                 }
             }
@@ -245,6 +254,7 @@ namespace NetSync.Transports.Udp {
                     }
                     target.QueuedBytes = 0;
                     if (_drained.Count > 0) {
+                        _sendingThread = Environment.CurrentManagedThreadId;
                         return true;
                     }
                 }
@@ -310,6 +320,26 @@ namespace NetSync.Transports.Udp {
             return false;
         }
 
+        /// <summary>
+        /// Batches the drain loop already took are still being sent: the owner closes the socket
+        /// right after Dispose, so wait for them (a Bye among them would be lost otherwise —
+        /// more often the slower the machine). Datagram sends don't block, so this is short.
+        /// </summary>
+        private void WaitForSendingRound() {
+            const int MaxWaitMs = 1000;
+            long deadline = NetTime.NowMs + MaxWaitMs;
+            lock (_lock) {
+                while (_sendingThread != 0 && _sendingThread != Environment.CurrentManagedThreadId) {
+                    long left = deadline - NetTime.NowMs;
+                    if (left <= 0) {
+                        _logger.Debug("DatagramBatcher: closing while a send is still in progress");
+                        return;
+                    }
+                    Monitor.Wait(_lock, (int)left);
+                }
+            }
+        }
+
         /// <summary>Stops the drain loop; what is still queued is sent on the calling thread first.</summary>
         public void Dispose() {
             var pending = new List<(Target, List<Batch>)>();
@@ -328,6 +358,7 @@ namespace NetSync.Transports.Udp {
             foreach (var (target, batches) in pending) {
                 SendAll(target, batches);
             }
+            WaitForSendingRound();
         }
     }
 }
