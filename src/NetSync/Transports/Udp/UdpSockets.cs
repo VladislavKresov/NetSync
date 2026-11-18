@@ -83,17 +83,42 @@ namespace NetSync.Transports.Udp {
             socket.ReceiveBufferSize = 1 << 20;
             socket.SendBufferSize = 1 << 20;
             DisableIcmpConnectionReset(socket);
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-                // Our receive loops block in ReceiveFrom on their own thread, and stop by closing the
-                // socket. On macOS closing a UDP socket doesn't wake a thread blocked in it, and the
-                // close waits for that call: a stop would hang until the next datagram. Waking up
-                // regularly bounds that wait; the loops treat the timeout as "nothing arrived".
-                socket.ReceiveTimeout = ReceiveWakeMs;
-            }
         }
 
-        /// <summary>How often a blocked receive wakes up on its own (non-Windows).</summary>
-        public const int ReceiveWakeMs = 250;
+        /// <summary>
+        /// Closes a socket whose receive loop may be blocked in it, waking that loop first (the
+        /// loop must already be cancelled). Closing alone isn't enough everywhere: on macOS a
+        /// UDP socket that isn't connected doesn't wake a thread blocked in it, and the close
+        /// waits for that call — a stop would hang until the next datagram arrived. So a
+        /// connected socket is shut down, and any other one gets an empty datagram from itself;
+        /// the loops skip empty datagrams and then see the cancellation.
+        /// (A receive timeout isn't an option: a socket whose receive timed out is in an
+        /// undefined state on Windows, and can lose a datagram arriving just then elsewhere.)
+        /// </summary>
+        public static void Close(Socket socket) {
+            try {
+                if (socket.Connected) {
+                    socket.Shutdown(SocketShutdown.Both);
+                }
+                else if (socket.LocalEndPoint is IPEndPoint local) {
+                    socket.SendTo(Array.Empty<byte>(), SocketFlags.None, new IPEndPoint(WakeAddress(local.Address), local.Port));
+                }
+            }
+            catch (Exception) {
+                // already closed, or no loopback: closing is all that's left
+            }
+            socket.Dispose();
+        }
+
+        private static IPAddress WakeAddress(IPAddress bound) {
+            if (bound.Equals(IPAddress.Any)) {
+                return IPAddress.Loopback;
+            }
+            if (bound.Equals(IPAddress.IPv6Any)) {
+                return IPAddress.IPv6Loopback;
+            }
+            return bound;
+        }
 
         /// <summary>
         /// Windows reports an ICMP "port unreachable" for an earlier datagram as an error on
@@ -116,8 +141,7 @@ namespace NetSync.Transports.Udp {
 
         /// <summary>Errors a datagram socket reports for earlier sends (ICMP); never fatal for the socket.</summary>
         public static bool IsTransient(SocketError error) {
-            return error == SocketError.TimedOut ||        // ReceiveWakeMs passed without a datagram
-                   error == SocketError.WouldBlock ||
+            return error == SocketError.WouldBlock ||      // a momentarily full send buffer
                    error == SocketError.ConnectionReset ||
                    error == SocketError.ConnectionRefused ||
                    error == SocketError.HostUnreachable ||

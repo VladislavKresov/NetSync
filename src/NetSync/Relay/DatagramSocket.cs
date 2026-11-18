@@ -74,6 +74,7 @@ namespace NetSync.Relay {
         }
 
 
-        public void Dispose() => _socket.Dispose();
+        /// <summary>Closes the socket, waking a receive blocked in it (the reader must already be cancelled).</summary>
+        public void Dispose() => UdpSockets.Close(_socket);
     }
 }

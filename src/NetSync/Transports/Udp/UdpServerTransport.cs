@@ -455,7 +455,9 @@ namespace NetSync.Transports.Udp {
             _batcher?.Dispose();
             _batcher = null;
             try {
-                _socket?.Close(); // unblocks the receive thread
+                if (_socket != null) {
+                    UdpSockets.Close(_socket); // unblocks the receive thread
+                }
             }
             catch { }
             _socket = null;

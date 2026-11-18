@@ -263,7 +263,7 @@ namespace NetSync.Transports.Udp {
             try {
                 connection.Cts.Cancel();
                 connection.Batcher.Dispose();
-                connection.Socket.Close(); // unblocks the receive thread
+                UdpSockets.Close(connection.Socket); // unblocks the receive thread
                 connection.Cts.Dispose();
             }
             catch (Exception ex) {

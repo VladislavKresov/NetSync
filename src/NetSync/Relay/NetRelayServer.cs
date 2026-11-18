@@ -309,8 +309,11 @@ namespace NetSync.Relay {
                 catch (SocketException ex) when (!ct.IsCancellationRequested && UdpSockets.IsTransient(ex.SocketErrorCode)) {
                     continue;
                 }
-                catch (Exception) {
-                    return; // socket closed
+                catch (Exception ex) {
+                    if (!ct.IsCancellationRequested) {
+                        _logger.Error($"Relay UDP stopped forwarding: {ex}"); // never silently
+                    }
+                    return;
                 }
                 if (received == 0) {
                     continue;
@@ -462,7 +465,9 @@ namespace NetSync.Relay {
                 _listener?.Stop();
             }
             catch { }
-            _udp?.Dispose();
+            if (_udp != null) {
+                UdpSockets.Close(_udp);
+            }
             foreach (var room in _rooms.Values) {
                 room.Host.Dispose();
             }
