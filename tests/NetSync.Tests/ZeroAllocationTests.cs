@@ -171,30 +171,51 @@ namespace NetSync.Tests {
             return clock.Elapsed.TotalMilliseconds;
         }
 
-        /// <summary>Counts the runtime's GC allocation-tick samples by type.</summary>
+        /// <summary>
+        /// Counts the runtime's GC allocation-tick samples by type and size, and the arrays the
+        /// shared array pool had to allocate (with the pool's reason).
+        /// </summary>
         private sealed class AllocationSampler : System.Diagnostics.Tracing.EventListener {
             private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _types =
+                new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+            private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _poolAllocations =
                 new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
 
             protected override void OnEventSourceCreated(System.Diagnostics.Tracing.EventSource source) {
                 if (source.Name == "Microsoft-Windows-DotNETRuntime") {
                     EnableEvents(source, System.Diagnostics.Tracing.EventLevel.Verbose, (System.Diagnostics.Tracing.EventKeywords)0x1); // GC
                 }
+                else if (source.Name == "System.Buffers.ArrayPoolEventSource") {
+                    EnableEvents(source, System.Diagnostics.Tracing.EventLevel.Informational);
+                }
             }
 
             protected override void OnEventWritten(System.Diagnostics.Tracing.EventWrittenEventArgs e) {
-                if (e.EventName == null || !e.EventName.StartsWith("GCAllocationTick", StringComparison.Ordinal) || e.PayloadNames == null) {
+                if (e.EventName == null || e.PayloadNames == null || e.Payload == null) {
                     return;
                 }
-                int index = e.PayloadNames.IndexOf("TypeName");
-                string type = index >= 0 ? e.Payload?[index]?.ToString() ?? "?" : "?";
-                _types.AddOrUpdate(type, 1, (_, count) => count + 1);
+                if (e.EventName.StartsWith("GCAllocationTick", StringComparison.Ordinal)) {
+                    string type = Field(e, "TypeName") ?? "?";
+                    string? size = Field(e, "ObjectSize");
+                    _types.AddOrUpdate(size != null ? $"{type} ({size} B)" : type, 1, (_, count) => count + 1);
+                }
+                else if (e.EventName == "BufferAllocated") {
+                    string key = $"{Field(e, "bufferSize")} B, {Field(e, "reason")}";
+                    _poolAllocations.AddOrUpdate(key, 1, (_, count) => count + 1);
+                }
             }
 
-            public string Report() {
-                var top = System.Linq.Enumerable.Take(System.Linq.Enumerable.OrderByDescending(_types, pair => pair.Value), 12);
+            private static string? Field(System.Diagnostics.Tracing.EventWrittenEventArgs e, string name) {
+                int index = e.PayloadNames!.IndexOf(name);
+                return index >= 0 ? e.Payload![index]?.ToString() : null;
+            }
+
+            private static string Top(System.Collections.Concurrent.ConcurrentDictionary<string, int> counts) {
+                var top = System.Linq.Enumerable.Take(System.Linq.Enumerable.OrderByDescending(counts, pair => pair.Value), 12);
                 return string.Join(", ", System.Linq.Enumerable.Select(top, pair => $"{pair.Key} x{pair.Value}"));
             }
+
+            public string Report() => $"{Top(_types)}; array pool allocated: {(_poolAllocations.IsEmpty ? "nothing" : Top(_poolAllocations))}";
         }
 
         private struct Position : NetSync.Messaging.INetMessage {
