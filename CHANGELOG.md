@@ -2,7 +2,7 @@
 
 Versions follow [Semantic Versioning](https://semver.org). The wire protocol has its own version, noted for each release: peers must speak the same one.
 
-## 2.0.0-rc.5 — unreleased
+## 2.0.0-rc.5 — 2026-11-18
 
 **Wire protocol v4. Not compatible with 2.0.0-rc.1 – rc.4: update clients and servers together.** Protocol v4 is the stable contract from here on — later releases extend it through negotiated features instead of replacing it.
 
