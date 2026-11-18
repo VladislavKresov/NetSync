@@ -137,7 +137,40 @@ namespace NetSync.Tests {
                 _output.WriteLine($"{label}, window {window}: {perMessage:F1} B per round trip");
                 best = Math.Min(best, perMessage);
             }
+            if (best >= 8) {
+                // Say what allocates: one more window with the runtime's allocation sampling on
+                // (only now — the sampler allocates too, so it can't run while measuring).
+                using var sampler = new AllocationSampler();
+                PingPong(4 * measured);
+                _output.WriteLine($"{label}, sampled allocations (one sample per ~100 KB): {sampler.Report()}");
+            }
             return best;
+        }
+
+        /// <summary>Counts the runtime's GC allocation-tick samples by type.</summary>
+        private sealed class AllocationSampler : System.Diagnostics.Tracing.EventListener {
+            private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _types =
+                new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
+
+            protected override void OnEventSourceCreated(System.Diagnostics.Tracing.EventSource source) {
+                if (source.Name == "Microsoft-Windows-DotNETRuntime") {
+                    EnableEvents(source, System.Diagnostics.Tracing.EventLevel.Verbose, (System.Diagnostics.Tracing.EventKeywords)0x1); // GC
+                }
+            }
+
+            protected override void OnEventWritten(System.Diagnostics.Tracing.EventWrittenEventArgs e) {
+                if (e.EventName == null || !e.EventName.StartsWith("GCAllocationTick", StringComparison.Ordinal) || e.PayloadNames == null) {
+                    return;
+                }
+                int index = e.PayloadNames.IndexOf("TypeName");
+                string type = index >= 0 ? e.Payload?[index]?.ToString() ?? "?" : "?";
+                _types.AddOrUpdate(type, 1, (_, count) => count + 1);
+            }
+
+            public string Report() {
+                var top = System.Linq.Enumerable.Take(System.Linq.Enumerable.OrderByDescending(_types, pair => pair.Value), 12);
+                return string.Join(", ", System.Linq.Enumerable.Select(top, pair => $"{pair.Key} x{pair.Value}"));
+            }
         }
 
         private struct Position : NetSync.Messaging.INetMessage {

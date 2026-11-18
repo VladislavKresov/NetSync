@@ -212,7 +212,24 @@ namespace NetSync.Tests {
             // Loopback carries 1472-byte datagrams: fragments grow from 1100 to 1453 bytes.
             int expected = ReliableEndpoint.FragmentSizeForDatagram(1472, enveloped: false);
             var connection = Assert.Single(server.Connections);
-            await WaitUntilAsync(() => connection.Reliable!.FragmentSize == expected);
+            try {
+                await WaitUntilAsync(() => connection.Reliable!.FragmentSize == expected);
+            }
+            catch (TimeoutException) {
+                // Say why: what a probe from here confirms, and whether this OS can forbid fragmentation.
+                int confirmed = await NetSync.Transports.Udp.PathMtuProbe.ProbeAsync(new IPEndPoint(IPAddress.Loopback, port), 300, default);
+                string dontFragment;
+                try {
+                    using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                    socket.DontFragment = true;
+                    dontFragment = "supported";
+                }
+                catch (Exception ex) {
+                    dontFragment = ex.GetType().Name + ": " + ex.Message;
+                }
+                Assert.Fail($"fragment size stayed {connection.Reliable!.FragmentSize}, expected {expected}; " +
+                            $"a probe now confirms {confirmed} bytes; DontFragment: {dontFragment}");
+            }
             _output.WriteLine($"fragment size after MTU discovery: {connection.Reliable!.FragmentSize}");
 
             var payload = new byte[100_000];
