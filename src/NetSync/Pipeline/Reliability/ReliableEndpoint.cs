@@ -141,7 +141,7 @@ namespace NetSync.Pipeline.Reliability {
             public bool AckPending;                               // deferred ack waiting for FlushAcks
             public ushort AckAnchor;
 
-            public ReceiverState(ReliabilityMode mode, int maxMessageSize) {
+            public ReceiverState(ReliabilityMode mode, int maxMessageSize, ITimeSource time) {
                 Mode = mode;
                 SeenRing = mode == ReliabilityMode.Reliable ? new bool[WindowSize] : Array.Empty<bool>();
                 if (mode == ReliabilityMode.ReliableOrdered) {
@@ -152,6 +152,7 @@ namespace NetSync.Pipeline.Reliability {
                     // retransmission — the default 5 s reassembly timeout would drop
                     // slow transfers mid-flight.
                     Fragments = new FragmentBuffer {
+                        Time = time,
                         FragmentTimeoutMs = 600_000,
                         MaxPacketBytes = maxMessageSize,
                         MaxBufferedBytes = 2L * maxMessageSize,
@@ -162,6 +163,7 @@ namespace NetSync.Pipeline.Reliability {
                     // Real-time data: an incomplete message is worthless after a moment,
                     // and a handful in flight is plenty (older ones are stale anyway).
                     Fragments = new FragmentBuffer {
+                        Time = time,
                         FragmentTimeoutMs = 2_000,
                         MaxConcurrentPackets = 8,
                         MaxPacketBytes = maxMessageSize,
@@ -188,6 +190,7 @@ namespace NetSync.Pipeline.Reliability {
         private readonly int _rtoFloorMs;
         private readonly int _rtoCeilingMs;
         private readonly int _deadAfterMs;
+        private readonly ITimeSource _time;
         private int _slowSends; // sends waiting for window space (or between fragments)
         private readonly List<PendingPacket> _due = new List<PendingPacket>(); // clock thread only
         private long _lastScanMs;
@@ -212,10 +215,11 @@ namespace NetSync.Pipeline.Reliability {
             int rtoFloorMs = 30,
             int rtoCeilingMs = 3000,
             bool congestionControl = true,
-            int deadAfterMs = 0)
+            int deadAfterMs = 0,
+            ITimeSource? time = null)
             : this(channels, sendAsync, (channel, buffer, offset, count) => deliver(channel, Pooled.ToArray(buffer, offset, count)),
                    getPingMs, onDead, logger, maxRetransmits, retransmitScanMs, maxMessageSize, rtoFloorMs, rtoCeilingMs, congestionControl,
-                   deadAfterMs) { }
+                   deadAfterMs, time) { }
 
         public ReliableEndpoint(
             Dictionary<byte, ChannelConfig> channels,
@@ -230,9 +234,11 @@ namespace NetSync.Pipeline.Reliability {
             int rtoFloorMs = 30,
             int rtoCeilingMs = 3000,
             bool congestionControl = true,
-            int deadAfterMs = 0) {
+            int deadAfterMs = 0,
+            ITimeSource? time = null) {
             _sendAsync = sendAsync;
             _deadAfterMs = Math.Max(0, deadAfterMs);
+            _time = time ?? SystemTimeSource.Instance; // a virtual clock in tests: they call Tick themselves
             _deliver = deliver;
             _getPingMs = getPingMs;
             _onDead = onDead;
@@ -252,7 +258,7 @@ namespace NetSync.Pipeline.Reliability {
                     ? new CongestionWindow(background: channel.Priority == ChannelPriority.Low, maxWindow: WindowSize)
                     : null;
                 _senders[kvp.Key] = new SenderState(channel.Reliability, congestion);
-                _receivers[kvp.Key] = new ReceiverState(channel.Reliability, maxMessageSize);
+                _receivers[kvp.Key] = new ReceiverState(channel.Reliability, maxMessageSize, _time);
             }
         }
 
@@ -318,6 +324,31 @@ namespace NetSync.Pipeline.Reliability {
             // Fragmented: each chunk is its own reliable packet; the window and the
             // congestion controller pace the stream so a big message cannot flood the link.
             return SendFragmentsAsync(sender, channel, data, reliable: true, ct);
+        }
+
+        /// <summary>
+        /// Sends a single-packet reliable message only if the window has room right now and no
+        /// earlier message is waiting; false otherwise (nothing sent). Never waits — for callers
+        /// that drive the endpoint from one thread, like the virtual-time tests.
+        /// </summary>
+        internal bool TrySendReliable(byte channel, ReadOnlyMemory<byte> data) {
+            var sender = GetSender(channel);
+            if (!sender.IsReliable || data.Length > FragmentSize) {
+                throw new ArgumentException("A reliable channel and a payload that fits one packet are required", nameof(data));
+            }
+            var message = BuildRelData(channel, flags: 0, data.Span, default, out int length);
+            PendingPacket? pending = null;
+            lock (sender.Lock) {
+                if (!sender.Closed && !sender.TurnHeld) {
+                    pending = TryAdmitLocked(sender, message, length, _time.NowMs);
+                }
+            }
+            if (pending == null) {
+                Pooled.Return(message);
+                return false;
+            }
+            TransmitFirst(sender, pending).Forget(_logger);
+            return true;
         }
 
         public ValueTask SendSequencedAsync(byte channel, ReadOnlyMemory<byte> data) {
@@ -457,7 +488,7 @@ namespace NetSync.Pipeline.Reliability {
                 }
                 holdsTurn = TryTakeTurnLocked(sender);
                 if (holdsTurn) {
-                    pending = TryAdmitLocked(sender, message, length);
+                    pending = TryAdmitLocked(sender, message, length, _time.NowMs);
                     if (pending != null) {
                         sender.TurnHeld = false; // admitted at once; nobody was waiting while the turn was free
                     }
@@ -502,7 +533,7 @@ namespace NetSync.Pipeline.Reliability {
                     Pooled.Return(message);
                     return new ValueTask(Task.FromException(Disposed()));
                 }
-                pending = TryAdmitLocked(sender, message, length);
+                pending = TryAdmitLocked(sender, message, length, _time.NowMs);
             }
             return pending != null ? TransmitFirst(sender, pending) : EnqueueSlowCoreAsync(sender, message, length, ct);
         }
@@ -560,7 +591,7 @@ namespace NetSync.Pipeline.Reliability {
                         if (sender.Closed) {
                             throw Disposed();
                         }
-                        pending = TryAdmitLocked(sender, message, length);
+                        pending = TryAdmitLocked(sender, message, length, _time.NowMs);
                         if (pending != null) {
                             break;
                         }
@@ -587,7 +618,7 @@ namespace NetSync.Pipeline.Reliability {
         }
 
         /// <summary>Window check + bookkeeping for a new reliable packet. Caller holds the lock.</summary>
-        private static PendingPacket? TryAdmitLocked(SenderState sender, byte[] message, int length) {
+        private static PendingPacket? TryAdmitLocked(SenderState sender, byte[] message, int length, long now) {
             bool rangeOpen = (ushort)(sender.NextSeq - sender.LowestUnacked) < WindowSize;
             bool congestionOpen = sender.Congestion == null || sender.Pending.Count < sender.Congestion.AllowedInFlight;
             if (!rangeOpen || !congestionOpen) {
@@ -595,7 +626,6 @@ namespace NetSync.Pipeline.Reliability {
             }
             ushort seq = sender.NextSeq++;
             BinaryPrimitives.WriteUInt16BigEndian(message.AsSpan(3, 2), seq);
-            long now = NetTime.NowMs;
             var pending = sender.Spare.Count > 0 ? sender.Spare.Pop() : new PendingPacket();
             pending.Buffer = message;
             pending.Length = length;
@@ -929,7 +959,7 @@ namespace NetSync.Pipeline.Reliability {
                 return;
             }
 
-            long now = NetTime.NowMs;
+            long now = _time.NowMs;
             TaskCompletionSource<bool>? waiter = null;
             var fastResend = _fastResend;
             fastResend.Clear();

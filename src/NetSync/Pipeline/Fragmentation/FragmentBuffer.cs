@@ -37,6 +37,9 @@ namespace NetSync.Pipeline.Fragmentation {
         /// <summary>Incomplete packets are dropped after this long without new fragments.</summary>
         public int FragmentTimeoutMs { get; set; } = 5000;
 
+        /// <summary>The clock reassembly timeouts are measured on (a virtual one in tests).</summary>
+        internal ITimeSource Time { get; set; } = SystemTimeSource.Instance;
+
         /// <summary>Upper bound on simultaneously reassembling packets; oldest is evicted.</summary>
         public int MaxConcurrentPackets { get; set; } = 16;
 
@@ -99,7 +102,7 @@ namespace NetSync.Pipeline.Fragmentation {
                 return true;
             }
 
-            long now = NetTime.NowMs;
+            long now = Time.NowMs;
             lock (_lock) {
                 CleanupIfDue(now);
 
