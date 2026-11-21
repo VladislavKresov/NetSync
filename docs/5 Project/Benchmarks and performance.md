@@ -17,24 +17,26 @@ tags: [project]
 
 ## Current numbers
 
-Windows 11, Ryzen 9 5900X, .NET 8, client and server in one process (2026-10-16):
+Windows 11, Ryzen 9 5900X, .NET 8, client and server in one process, 2.0.0-rc.6 (2026-11-21):
 
 | Scenario | Result |
 |---|---|
-| UDP small messages, echo | ~1.2 M msg/s round-trip, 0 B/message |
-| TCP small messages, echo | ~0.7–0.8 M msg/s, ≈0 B/message |
-| Reliable-ordered UDP, echo | ~0.2 M msg/s; bulk ~250 MB/s |
-| TCP bulk (fragmented) | ~470 MB/s through the full stack |
-| Authenticated TCP / UDP | ~0.55 M / ~0.6 M msg/s; + encrypted TCP ~0.4 M |
-| UDP RTT | p50 ≈ 27 µs, p99 ≈ 80 µs |
-| 1000 clients | connect in 0.2 s, ~100 KB per connection (both sides), idle ≈ 3 % of one core |
-| Congestion control (2 MB/s bottleneck) | 4.5 % retransmissions at ~92 % utilization |
+| UDP small messages, echo | ~1.13 M msg/s round-trip, ~1 B/message |
+| TCP small messages, echo | ~0.69 M msg/s, ~5 B/message |
+| Reliable-ordered UDP, echo | ~0.23 M msg/s; bulk ~220 MB/s |
+| TCP bulk (fragmented) | ~475 MB/s through the full stack |
+| Authenticated TCP / UDP | ~0.58 M / ~0.64 M msg/s, 0 B/message; + encrypted TCP ~0.43 M |
+| UDP RTT | p50 ≈ 28 µs, p99 ≈ 64 µs (reliable-ordered: 41 / 81 µs) |
+| 1000 clients | connect in 0.2 s, ~101 KB per connection (both sides), idle ≈ 2.8 % of one core |
+| Congestion control (2 MB/s bottleneck, 50 ms queue) | ~0.4 % retransmissions end to end, ~70 % without it (`TrafficTests`) |
+
+The allocation figures of the benchmark include the harness; the data path itself is checked at 0 B per message by `ZeroAllocationTests`.
 
 | vs LiteNetLib 2.1.4 | NetSync | LiteNetLib |
 |---|---|---|
-| UDP unreliable | 1.1–1.3 M msg/s | 0.6–0.8 M |
-| UDP reliable-ordered | 0.18–0.25 M | 0.4–0.65 M |
-| Latency p50 | 0.027 ms | 0.055 ms |
+| UDP unreliable | 1.18 M msg/s | 0.69 M |
+| UDP reliable-ordered | 0.22 M | 0.40 M |
+| Latency p50 (unreliable) | 0.031 ms | 0.059 ms |
 
 ## History
 
