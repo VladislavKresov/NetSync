@@ -25,6 +25,10 @@ namespace NetSync.Transports.Udp {
 
         private sealed class Connection {
             public readonly Socket Socket;
+            // Cancelled on close, never disposed: the connection's loops read its token on their own
+            // threads, possibly after the close (a receive thread that only just started), and
+            // reading a disposed source's token throws — fatal on a thread. Without timers or
+            // linked tokens it holds nothing that needs disposing.
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
             public readonly NetMetrics Metrics = new NetMetrics();
             public readonly DatagramBatcher Batcher;
@@ -264,7 +268,6 @@ namespace NetSync.Transports.Udp {
                 connection.Cts.Cancel();
                 connection.Batcher.Dispose();
                 UdpSockets.Close(connection.Socket); // unblocks the receive thread
-                connection.Cts.Dispose();
             }
             catch (Exception ex) {
                 _logger.Debug($"UdpTransport close: {ex.Message}");

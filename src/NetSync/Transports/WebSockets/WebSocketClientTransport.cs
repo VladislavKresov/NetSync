@@ -14,6 +14,10 @@ namespace NetSync.Transports.WebSockets {
     internal sealed class WebSocketClientTransport : ITransport, IPrioritizedTransport, IPooledReceiveTransport {
         private sealed class Connection {
             public readonly ClientWebSocket Socket;
+            // Cancelled on close, never disposed: the connection's loops read its token on their own
+            // threads, possibly after the close (a receive thread that only just started), and
+            // reading a disposed source's token throws — fatal on a thread. Without timers or
+            // linked tokens it holds nothing that needs disposing.
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
             public readonly MessageLink Link;
             public int DisconnectSignaled;
@@ -167,7 +171,6 @@ namespace NetSync.Transports.WebSockets {
                 connection.Socket.Abort(); // unblocks a stuck send or receive at once
                 connection.Socket.Dispose();
                 connection.Link.Dispose();
-                connection.Cts.Dispose();
             }
             catch (Exception ex) {
                 _logger.Debug($"WebSocketTransport close: {ex.Message}");

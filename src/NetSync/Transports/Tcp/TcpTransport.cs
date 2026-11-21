@@ -35,6 +35,10 @@ namespace NetSync.Transports.Tcp {
         private sealed class Connection {
             public readonly TcpClient Client;
             public readonly NetworkStream Stream;
+            // Cancelled on close, never disposed: the connection's loops read its token on their own
+            // threads, possibly after the close (a receive thread that only just started), and
+            // reading a disposed source's token throws — fatal on a thread. Without timers or
+            // linked tokens it holds nothing that needs disposing.
             public readonly CancellationTokenSource Cts = new CancellationTokenSource();
             public readonly SendQueue SendQueue;
             public readonly FragmentBuffer FragmentBuffer;
@@ -312,7 +316,6 @@ namespace NetSync.Transports.Tcp {
                 connection.Client.Close();
                 connection.SendQueue.Dispose();
                 connection.FragmentBuffer.Clear();
-                connection.Cts.Dispose();
             }
             catch (Exception ex) {
                 _logger.Debug($"TcpTransport close: {ex.Message}");

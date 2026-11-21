@@ -649,7 +649,7 @@ namespace NetSync.Peers {
                     _logger.Debug($"Link dispose: {ex.Message}");
                 }
             }
-            session.Cts.Dispose();
+            // session.Cts stays undisposed: loops of this session may still read its token.
 
             if (raiseEvent && wasEstablished) {
                 _dispatcher.Dispatch(() => Disconnected?.Invoke(reason));
