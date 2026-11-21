@@ -68,11 +68,11 @@ namespace NetSync.Peers {
                 if (session.Links.TryGetValue(TransportType.Udp, out var udpLink) && _hasReliableUdp) {
                     session.Reliable = new ReliableEndpoint(
                         _channels,
-                        message => SendOnLinkAsync(session, TransportType.Udp, ReadOnlyMemory<byte>.Empty, message,
+                        message => SendOnLinkAsync(session, session.Handover.ReliableSlot, ReadOnlyMemory<byte>.Empty, message,
                                                    Sending.SendPriority.Normal, CancellationToken.None),
                         (channel, buffer, offset, count) => DeliverIncoming(session, channel, buffer, offset, count),
                         () => udpLink.PingMs,
-                        reason => CloseSession(session, reason, raiseEvent: true),
+                        reason => OnUdpPathLost(session, reason),
                         _logger,
                         maxMessageSize: _config.WireMessageLimit,
                     deadAfterMs: _config.PingTimeoutMs);
@@ -282,6 +282,7 @@ namespace NetSync.Peers {
             lock (session.CryptoLock) {
                 if (session.ConnectionId == 0) {
                     session.ConnectionId = welcome.ConnectionId;
+                    session.Features = welcome.Features & PeerProtocol.LocalFeatures;
                 }
                 if (mode != KeyExchangeMode.None && session.Crypto == null) {
                     var failure = EstablishKeys(session, welcome);

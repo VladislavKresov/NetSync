@@ -24,6 +24,12 @@ namespace NetSync.Pipeline.Reliability {
 
         public bool HasSample => _hasSample;
 
+        /// <summary>The path changed (UDP to TCP): timeouts measured on the old one say nothing.</summary>
+        public void ResetBackoff() {
+            _backoff = 1;
+            _nextBackoffAtMs = 0;
+        }
+
         /// <summary>
         /// A retransmission timer fired (RFC 6298, 5.5): the timeout stays doubled for every
         /// packet — not just the one that timed out — until an acknowledgement brings a new

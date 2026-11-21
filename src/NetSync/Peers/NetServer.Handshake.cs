@@ -108,11 +108,11 @@ namespace NetSync.Peers {
                 var capturedConnection = connection;
                 connection.Reliable = new ReliableEndpoint(
                     _channels,
-                    message => SendToLinkAsync(capturedConnection, TransportType.Udp, ReadOnlyMemory<byte>.Empty, message,
+                    message => SendToLinkAsync(capturedConnection, capturedConnection.Handover.ReliableSlot, ReadOnlyMemory<byte>.Empty, message,
                                                Sending.SendPriority.Normal, CancellationToken.None),
                     (channel, segment, segmentOffset, segmentCount) => DeliverIncoming(capturedConnection, channel, segment, segmentOffset, segmentCount),
                     () => capturedConnection.GetPing(TransportType.Udp),
-                    reason => CloseConnection(capturedConnection, reason, notifyLinks: true),
+                    reason => OnUdpPathLost(capturedConnection, reason),
                     _logger,
                     maxMessageSize: _config.WireMessageLimit,
                     deadAfterMs: _config.PingTimeoutMs);
@@ -174,6 +174,7 @@ namespace NetSync.Peers {
             long id = Interlocked.Increment(ref _nextConnectionId);
             var connection = new NetConnection(this, id, hello.Token, NetTime.NowMs) { CipherSuite = suite };
             uint features = hello.Features & PeerProtocol.LocalFeatures;
+            connection.Features = features;
             byte[]? serverPublicKey = null;
             byte[]? identityKey = null;
             var mode = _config.Encryption.Mode;

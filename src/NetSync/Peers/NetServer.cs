@@ -251,8 +251,57 @@ namespace NetSync.Peers {
         private void OnPeerDisconnected(TransportPeer peer, DisconnectReason reason) {
             _pendingPeers.TryRemove(peer, out _);
             if (peer.PeerLayerState is NetConnection connection) {
+                if (connection.Links.TryGetValue(TransportType.Udp, out var udpPeer) && ReferenceEquals(udpPeer, peer)) {
+                    OnUdpPathLost(connection, reason);
+                    return;
+                }
                 CloseConnection(connection, reason, notifyLinks: true);
             }
+        }
+
+        /// <summary>The client's UDP path stopped working: move its channels to TCP if possible, otherwise close.</summary>
+        private void OnUdpPathLost(NetConnection connection, DisconnectReason reason) {
+            if (!TryMoveUdpToTcp(connection, notifyClient: true)) {
+                CloseConnection(connection, reason, notifyLinks: true);
+            }
+        }
+
+        /// <summary>
+        /// UDP lost mid-session: carry the connection's UDP channels over TCP instead of closing it
+        /// (see <see cref="UdpHandover"/>). False when that isn't possible or allowed: the caller closes.
+        /// </summary>
+        private bool TryMoveUdpToTcp(NetConnection connection, bool notifyClient) {
+            if (Volatile.Read(ref connection.Closed) == 1 || Volatile.Read(ref connection.Announced) == 0 ||
+                (connection.Features & PeerProtocol.FeatureLiveDegrade) == 0 || _config.RequireAllTransports ||
+                connection.IsDegraded && !connection.Handover.HasStarted || !connection.Links.ContainsKey(TransportType.Tcp)) {
+                return false;
+            }
+            if (!connection.Handover.TryBegin()) {
+                return true; // already moving (the client's Degrade and ours crossed)
+            }
+            Volatile.Write(ref connection.Degraded, 1);
+            if (notifyClient) {
+                _ = SafeSendAsync(connection, TransportType.Tcp, PeerProtocol.EncodeDegrade());
+            }
+            connection.Handover.MoveReliableToTcp(connection.Reliable);
+            if (connection.Links.TryRemove(TransportType.Udp, out var udpPeer)) {
+                udpPeer.PeerLayerState = null; // its disconnect no longer concerns the connection
+                udpPeer.Owner?.DisconnectPeer(udpPeer);
+            }
+            _logger.Warning($"{connection}: UDP stopped working; its channels continue over TCP");
+            _ = FinishUdpHandoverAsync(connection);
+            return true;
+        }
+
+        private async Task FinishUdpHandoverAsync(NetConnection connection) {
+            try {
+                int timeoutMs = Math.Max(_config.PingTimeoutMs, 5000);
+                if (!await connection.Handover.FinishAsync(connection.Reliable, timeoutMs, CancellationToken.None).ConfigureAwait(false)) {
+                    _logger.Warning($"{connection}: moving the UDP channels to TCP did not finish within {timeoutMs} ms; disconnecting");
+                    CloseConnection(connection, DisconnectReason.Timeout, notifyLinks: true);
+                }
+            }
+            catch (ObjectDisposedException) { }
         }
 
         // buffer may be a pooled/transport-owned array: valid only during this call,
@@ -325,7 +374,10 @@ namespace NetSync.Peers {
 
                 case PeerProtocol.MsgDegrade:
                     if (type == TransportType.Tcp && peer.PeerLayerState is NetConnection degradedConnection) {
-                        HandleDegrade(degradedConnection);
+                        // Mid-session the client lost UDP: follow it. While connecting: the old fallback.
+                        if (!TryMoveUdpToTcp(degradedConnection, notifyClient: false)) {
+                            HandleDegrade(degradedConnection);
+                        }
                     }
                     break;
 
@@ -450,10 +502,19 @@ namespace NetSync.Peers {
             var slot = channelConfig.Transport == TransportType.Udp && connection.IsDegraded
                 ? TransportType.Tcp
                 : channelConfig.Transport;
-            if (slot == TransportType.Udp && channelConfig.Reliability != ReliabilityMode.Unreliable) {
-                var reliable = connection.Reliable
-                    ?? throw new InvalidOperationException($"Connection#{connection.Id} has no UDP link");
-                return reliable.SendAsync(channel, data, ct);
+            if (channelConfig.Transport == TransportType.Udp && channelConfig.Reliability != ReliabilityMode.Unreliable &&
+                (slot == TransportType.Udp || connection.Handover.HasStarted)) {
+                if (connection.Handover.TryEnter()) {
+                    try {
+                        var reliable = connection.Reliable
+                            ?? throw new InvalidOperationException($"Connection#{connection.Id} has no UDP link");
+                        return reliable.SendAsync(channel, data, ct);
+                    }
+                    finally {
+                        connection.Handover.Exit();
+                    }
+                }
+                return SendAfterUdpHandover(connection, channel, channelConfig, data, ct);
             }
             if (!connection.Links.ContainsKey(slot)) {
                 throw new InvalidOperationException($"Connection#{connection.Id} has no {slot} link");
@@ -461,6 +522,16 @@ namespace NetSync.Peers {
             // Cached 2-byte prefix + gather send: no per-send allocations at this layer.
             return SendToLinkAsync(connection, slot, PeerProtocol.DataPrefix(channel), data,
                                    PriorityMapping.ToSendPriority(channelConfig.Priority), ct);
+        }
+
+        /// <summary>
+        /// UDP was lost mid-session: after the handover the channel rides TCP as plain data.
+        /// (A method of its own: the lambda's captures must not cost the common path an allocation.)
+        /// </summary>
+        private ValueTask SendAfterUdpHandover(NetConnection connection, byte channel, ChannelConfig channelConfig, ReadOnlyMemory<byte> data, CancellationToken ct) {
+            var priority = PriorityMapping.ToSendPriority(channelConfig.Priority);
+            return connection.Handover.SendAfterSwitchAsync(data,
+                payload => SendToLinkAsync(connection, TransportType.Tcp, PeerProtocol.DataPrefix(channel), payload, priority, ct));
         }
 
         /// <summary>
@@ -569,6 +640,7 @@ namespace NetSync.Peers {
             if (Interlocked.Exchange(ref connection.Closed, 1) == 1) {
                 return;
             }
+            connection.Handover.Abort();
             _connectionsByToken.TryRemove(connection.Token, out _);
             _connections.TryRemove(connection.Id, out _);
             ReleaseSlot(connection);

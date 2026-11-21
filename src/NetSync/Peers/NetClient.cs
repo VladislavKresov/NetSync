@@ -56,6 +56,8 @@ namespace NetSync.Peers {
             public int Closed;
             public int Degraded;    // UDP given up: UDP channels ride the TCP link
             public bool UdpUnavailable; // the UDP link couldn't even be created/connected (browser, no sockets)
+            public uint Features;       // agreed in the handshake (PeerProtocol.Feature*)
+            public readonly UdpHandover Handover = new UdpHandover();
             public readonly TrafficCounters Traffic = new TrafficCounters();
             public readonly ClockSync Clock = new ClockSync();
 
@@ -289,13 +291,32 @@ namespace NetSync.Peers {
 
         private ValueTask Route(Session session, byte channel, ChannelConfig channelConfig, ReadOnlyMemory<byte> data, CancellationToken ct) {
             var slot = session.IsLinkActive(channelConfig.Transport) ? channelConfig.Transport : TransportType.Tcp;
-            if (slot == TransportType.Udp && channelConfig.Reliability != ReliabilityMode.Unreliable) {
-                var reliable = session.Reliable ?? throw new InvalidOperationException("Not connected");
-                return reliable.SendAsync(channel, data, ct);
+            if (channelConfig.Transport == TransportType.Udp && channelConfig.Reliability != ReliabilityMode.Unreliable &&
+                (slot == TransportType.Udp || session.Handover.HasStarted)) {
+                if (session.Handover.TryEnter()) {
+                    try {
+                        var reliable = session.Reliable ?? throw new InvalidOperationException("Not connected");
+                        return reliable.SendAsync(channel, data, ct);
+                    }
+                    finally {
+                        session.Handover.Exit();
+                    }
+                }
+                return SendAfterUdpHandover(session, channel, channelConfig, data, ct);
             }
             // Cached 2-byte prefix + gather send: no per-send allocations at this layer.
             return SendOnLinkAsync(session, slot, PeerProtocol.DataPrefix(channel), data,
                                    PriorityMapping.ToSendPriority(channelConfig.Priority), ct);
+        }
+
+        /// <summary>
+        /// UDP was lost mid-session: after the handover the channel rides TCP as plain data.
+        /// (A method of its own: the lambda's captures must not cost the common path an allocation.)
+        /// </summary>
+        private ValueTask SendAfterUdpHandover(Session session, byte channel, ChannelConfig channelConfig, ReadOnlyMemory<byte> data, CancellationToken ct) {
+            var priority = PriorityMapping.ToSendPriority(channelConfig.Priority);
+            return session.Handover.SendAfterSwitchAsync(data,
+                payload => SendOnLinkAsync(session, TransportType.Tcp, PeerProtocol.DataPrefix(channel), payload, priority, ct));
         }
 
         /// <summary>
@@ -430,6 +451,12 @@ namespace NetSync.Peers {
                     session.Reliable?.HandleAck(buffer, offset, count);
                     break;
 
+                case PeerProtocol.MsgDegrade:
+                    if (type == TransportType.Tcp) {
+                        TryMoveUdpToTcp(session, notifyServer: false); // the server lost our UDP: follow it
+                    }
+                    break;
+
                 case PeerProtocol.MsgTimeResponse:
                     if (count >= PeerProtocol.TimeResponseSize) {
                         session.Clock.AddSample(PeerProtocol.ReadTime(buffer.AsSpan(offset + 1, 8)),
@@ -508,6 +535,9 @@ namespace NetSync.Peers {
             if (Volatile.Read(ref session.Closed) == 1 || !session.IsLinkActive(type)) {
                 return;
             }
+            if (type == TransportType.Udp && TryMoveUdpToTcp(session, notifyServer: true)) {
+                return; // TCP carries the UDP channels from now on
+            }
             session.Handshakes[type].TrySetException(
                 new System.IO.IOException($"{type} link lost during handshake: {reason}"));
             if (type == TransportType.Udp && Volatile.Read(ref session.Established) == 0 && CanFallback(session)) {
@@ -532,10 +562,68 @@ namespace NetSync.Peers {
             }
         }
 
+        /// <summary>The UDP path stopped working: move its channels to TCP if possible, otherwise close.</summary>
+        private void OnUdpPathLost(Session session, DisconnectReason reason) {
+            if (!TryMoveUdpToTcp(session, notifyServer: true)) {
+                CloseSession(session, reason, raiseEvent: true);
+            }
+        }
+
+        /// <summary>
+        /// UDP lost mid-session: carry the UDP channels over TCP instead of closing (see
+        /// <see cref="UdpHandover"/>). False when that isn't possible or allowed: the caller closes.
+        /// </summary>
+        private bool TryMoveUdpToTcp(Session session, bool notifyServer) {
+            if (Volatile.Read(ref session.Closed) == 1 || Volatile.Read(ref session.Established) == 0 ||
+                (session.Features & PeerProtocol.FeatureLiveDegrade) == 0 || _config.RequireAllTransports ||
+                !session.Links.ContainsKey(TransportType.Tcp) || !session.Links.ContainsKey(TransportType.Udp)) {
+                return false;
+            }
+            if (!session.Handover.TryBegin()) {
+                return true; // already moving (the server's Degrade and ours crossed)
+            }
+            Volatile.Write(ref session.Degraded, 1);
+            if (notifyServer) {
+                try {
+                    SendOnLinkAsync(session, TransportType.Tcp, ReadOnlyMemory<byte>.Empty, PeerProtocol.EncodeDegrade(),
+                                    Sending.SendPriority.High, CancellationToken.None).Forget(_logger);
+                }
+                catch (Exception ex) {
+                    _logger.Debug($"Degrade notice: {ex.Message}");
+                }
+            }
+            session.Handover.MoveReliableToTcp(session.Reliable);
+            if (session.Links.TryGetValue(TransportType.Udp, out var udpLink)) {
+                try {
+                    udpLink.Dispose();
+                }
+                catch (Exception ex) {
+                    _logger.Debug($"UDP link dispose: {ex.Message}");
+                }
+            }
+            _logger.Warning("UDP to the server stopped working; its channels continue over TCP " +
+                            "(set NetConfig.RequireAllTransports to disconnect instead)");
+            _ = FinishUdpHandoverAsync(session);
+            return true;
+        }
+
+        private async Task FinishUdpHandoverAsync(Session session) {
+            try {
+                int timeoutMs = Math.Max(_config.PingTimeoutMs, 5000);
+                if (!await session.Handover.FinishAsync(session.Reliable, timeoutMs, session.Cts.Token).ConfigureAwait(false)) {
+                    _logger.Warning($"Moving the UDP channels to TCP did not finish within {timeoutMs} ms; disconnecting");
+                    CloseSession(session, DisconnectReason.Timeout, raiseEvent: true);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+        }
+
         private void CloseSession(Session session, DisconnectReason reason, bool raiseEvent) {
             if (Interlocked.Exchange(ref session.Closed, 1) == 1) {
                 return;
             }
+            session.Handover.Abort();
             bool wasEstablished = Volatile.Read(ref session.Established) == 1;
             if (ReferenceEquals(_session, session)) {
                 _session = null;

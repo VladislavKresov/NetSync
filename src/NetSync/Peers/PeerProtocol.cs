@@ -28,7 +28,8 @@ namespace NetSync.Peers {
     /// JoinAccept [0x08]                             — server: connection open.
     /// JoinReject [0x09][reason utf8…]               — server application refused.
     /// Bye        [0x04][reason:1]                   — graceful disconnect notice.
-    /// Degrade    [0x05]                             — client (on TCP): "UDP failed, carry my UDP channels over TCP".
+    /// Degrade    [0x05]                             — on TCP: "UDP failed, carry the UDP channels over TCP". From the
+    ///                                                client while connecting; from either side later (FeatureLiveDegrade).
     /// TimeReq    [0x0A][clientTime:8]               — client: what time is it on the server?
     /// TimeResp   [0x0B][clientTime:8][serverTime:8] — server: echo + its clock (double ms, bit pattern BE).
     /// PathMtu    [0x0C][datagramSize:2]             — client: the measured path MTU; use it for fragments too.
@@ -74,8 +75,15 @@ namespace NetSync.Peers {
         /// <summary>The client belongs to another application or application protocol version.</summary>
         public const byte RejectApplicationMismatch = 5;
 
-        /// <summary>Feature bits this build understands (none are defined yet).</summary>
-        public const uint LocalFeatures = 0;
+        /// <summary>
+        /// Bit 2: losing UDP mid-session moves the UDP channels to TCP instead of closing the
+        /// connection. Either side may send Degrade; reliable packets still unacknowledged are
+        /// resent over TCP before new messages follow (see UdpHandover). Bits 0 and 1 are reserved.
+        /// </summary>
+        public const uint FeatureLiveDegrade = 1u << 2;
+
+        /// <summary>Feature bits this build understands.</summary>
+        public const uint LocalFeatures = FeatureLiveDegrade;
 
         public const byte ByeGraceful = 0;   // client leaving / server shutting down
         public const byte ByeKicked = 1;     // server removed this client on purpose

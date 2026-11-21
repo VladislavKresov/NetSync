@@ -180,6 +180,7 @@ namespace NetSync.Pipeline.Reliability {
         private readonly int _rtoFloorMs;
         private readonly int _rtoCeilingMs;
         private readonly int _deadAfterMs;
+        private int _slowSends; // sends waiting for window space (or between fragments)
         private readonly List<PendingPacket> _due = new List<PendingPacket>(); // clock thread only
         private long _lastScanMs;
         private int _started;
@@ -380,6 +381,7 @@ namespace NetSync.Pipeline.Reliability {
 
         private async ValueTask ContinueFragmentsAsync(ValueTask pending, SenderState sender, byte channel, byte[]? rest, int restStart,
                                                        int dataLength, int size, int next, uint id, int total, bool reliable, CancellationToken ct) {
+            Interlocked.Increment(ref _slowSends);
             try {
                 await pending.ConfigureAwait(false);
                 for (int i = next; i < total; i++) {
@@ -390,6 +392,7 @@ namespace NetSync.Pipeline.Reliability {
                 }
             }
             finally {
+                Interlocked.Decrement(ref _slowSends);
                 if (rest != null) {
                     Pooled.Return(rest);
                 }
@@ -424,6 +427,16 @@ namespace NetSync.Pipeline.Reliability {
         private async ValueTask EnqueueSlowAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
             // Backpressure: wait while the seq range is a full window or the congestion
             // window says the link has enough in flight.
+            Interlocked.Increment(ref _slowSends); // before the first await: IsIdle never misses this send
+            try {
+                await EnqueueSlowCoreAsync(sender, message, length, ct).ConfigureAwait(false);
+            }
+            finally {
+                Interlocked.Decrement(ref _slowSends);
+            }
+        }
+
+        private async ValueTask EnqueueSlowCoreAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
             PendingPacket? pending = null;
             try {
                 while (pending == null) {
@@ -963,6 +976,54 @@ namespace NetSync.Pipeline.Reliability {
             catch (Exception ex) {
                 _logger.Error($"Reliability timer: {ex}"); // never let one endpoint stop the shared clock
             }
+        }
+
+        /// <summary>
+        /// Nothing in flight: every reliable packet acknowledged, no send waiting for the window
+        /// or between the fragments of a message.
+        /// </summary>
+        public bool IsIdle {
+            get {
+                if (Volatile.Read(ref _slowSends) != 0) {
+                    return false;
+                }
+                foreach (var sender in _senders.Values) {
+                    if (!sender.IsReliable) {
+                        continue;
+                    }
+                    lock (sender.Lock) {
+                        if (sender.Pending.Count > 0) {
+                            return false;
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// The packets now travel another path (UDP lost, TCP carries them): resend everything
+        /// unacknowledged right away, and count timeouts and attempts afresh — the old path's
+        /// silence must neither delay the resend nor declare the new path dead.
+        /// </summary>
+        public void ResendAllOnNewPath(long now) {
+            lock (_rttLock) {
+                _rtt.ResetBackoff();
+            }
+            foreach (var sender in _senders.Values) {
+                if (!sender.IsReliable) {
+                    continue;
+                }
+                lock (sender.Lock) {
+                    foreach (var pending in sender.Pending.Values) {
+                        pending.Attempts = 0;
+                        pending.FirstSentAtMs = now;
+                        pending.LastSentAtMs = now - 3_600_000; // due at the next scan
+                    }
+                }
+            }
+            _lastScanMs = 0;
+            Volatile.Write(ref _deadSignaled, 0);
         }
 
         private void SignalDead(DisconnectReason reason) {

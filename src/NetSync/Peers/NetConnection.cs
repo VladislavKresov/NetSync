@@ -34,6 +34,8 @@ namespace NetSync.Peers {
         internal int AuthRejectSent;
         internal int Announced;
         internal int Degraded; // client gave up on UDP: UDP channels ride the TCP link
+        internal uint Features; // agreed in the handshake (PeerProtocol.Feature*)
+        internal readonly UdpHandover Handover = new UdpHandover();
         internal int HoldsSlot; // counts against NetConfig.MaxConnections
 
         /// <summary>
