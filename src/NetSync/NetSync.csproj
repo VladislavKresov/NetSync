@@ -7,9 +7,11 @@
     <RootNamespace>NetSync</RootNamespace>
     <AssemblyName>NetSync</AssemblyName>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <!-- dotnet pack fails when the two targets expose different public APIs. After a stable release, add
-         PackageValidationBaselineVersion so it also fails on a breaking change against that release. -->
+    <!-- dotnet pack fails when the two targets expose different public APIs, or when the public API
+         breaks compatibility with the baseline: 2.0.0-rc.5, the release that froze protocol v4 and the API.
+         An intended break needs a deliberate change here (and a major version). -->
     <EnablePackageValidation>true</EnablePackageValidation>
+    <PackageValidationBaselineVersion>2.0.0-rc.5</PackageValidationBaselineVersion>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
