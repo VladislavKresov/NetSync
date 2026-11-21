@@ -16,7 +16,7 @@ tags: [overview]
 | **Cipher suite** | `AesGcm` or `AesCbcHmacSha256`, negotiated per connection. | [[Keys and envelope]], [[CipherSuite]] |
 | **Envelope** | `[MsgSecure][counter][tag][inner]` — every post-handshake packet on a keyed connection. | [[LinkSecurity]] |
 | **Server identity** | Long-term X25519 key mixed into every handshake's session keys; clients pin its public key. | [[NetIdentity]], [[Security]] |
-| **Degraded** | UDP could not be established; UDP channels ride the stream link. | [[Connecting and approval]] |
+| **Degraded** | UDP could not be established, or stopped working mid-session; UDP channels ride the stream link. | [[Connecting and approval]] |
 | **Trust mode** | Pre-handshake peers get tiny limits, no keepalive, a population cap. | [[Limits and hardening]] |
 | **Cookie / Retry** | Proof of address a UDP-only server demands before it creates keys. | [[Handshake v4]] |
 | **Batch** | Several small UDP packets in one datagram. | [[UDP batching]], [[DatagramBatcher]] |

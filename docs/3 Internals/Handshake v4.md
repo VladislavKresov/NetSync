@@ -57,7 +57,13 @@ sequenceDiagram
 | `suites` (8 bits) | Cipher suites as a bitmask: a new suite is a new bit. |
 | Formats after the handshake | May change only under a feature bit both sides agreed on. |
 
-Reserved feature bits (not implemented yet): bit 0 — a connection id in the datagram envelope, for clients whose address changes; bit 1 — an extended reliability format (larger window, acknowledgements carried with data).
+Feature bits:
+
+| Bit | Meaning | Since |
+|---|---|---|
+| 0 | Reserved: a connection id in the datagram envelope, for clients whose address changes. | — |
+| 1 | Reserved: an extended reliability format (larger window, acknowledgements carried with data). | — |
+| 2 | Losing UDP mid-session moves the UDP channels to the stream link instead of closing. Either side sends Degrade over the stream link; both move their reliability layer there, resend what is unacknowledged and only then send newer messages of those channels as plain Data. | 2.0.0-rc.6 |
 
 ## Session keys
 

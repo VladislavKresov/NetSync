@@ -53,6 +53,8 @@ Protocol details: [[Handshake v4]].
 
 If TCP connects but UDP doesn't within `TransportFallbackTimeoutMs` (3 s), or UDP can't even be created (a browser), the connection still opens and UDP channels ride TCP — `client.IsDegraded` / `connection.IsDegraded`. Set `RequireAllTransports = true` to fail instead.
 
+The same applies when UDP stops working later in the session (a firewall change, a NAT that dropped its mapping, a switch to another network): when keepalive or the reliability layer stops hearing back over UDP, the UDP channels move to TCP and the connection stays. Reliable messages still in flight are resent over TCP before newer ones, so nothing is lost, duplicated or reordered; sends on those channels wait for the moment the switch takes. The connection stays on TCP until it reconnects. Both sides must be 2.0.0-rc.6 or later (feature bit 2); with an older peer, or with `RequireAllTransports = true`, losing UDP disconnects as before.
+
 ## Reconnects, kicks, statistics
 
 ```csharp

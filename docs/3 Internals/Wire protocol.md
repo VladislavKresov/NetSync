@@ -28,7 +28,7 @@ Inside transport Data; after the handshake inside the envelope on keyed connecti
 | Welcome `0x02` | `[connectionId:8][suite:1][features:4][pubLen:1][pub…][idLen:1][identityKey…][extLen:2][extensions…]` |
 | Reject `0x03` | `[reason:1]` 1 version · 2 encryption · 3 configuration · 4 authentication · 5 application |
 | Bye `0x04` | `[reason:1]` 0 graceful/shutdown · 1 kicked |
-| Degrade `0x05` | (empty) — carry my UDP channels over the stream link |
+| Degrade `0x05` | (empty) — carry the UDP channels over the stream link. From the client while connecting; from either side mid-session when both agreed on feature bit 2 (the receiver follows: its reliability layer moves to the stream link too, unacknowledged packets are resent there before newer messages) |
 | Retry `0x06` | `[cookie:16]` |
 | Join `0x07` | `[connectData…]` (encrypted when keyed) |
 | JoinAccept `0x08` / JoinReject `0x09` | — / `[reason utf8]` |
