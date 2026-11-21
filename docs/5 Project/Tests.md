@@ -4,7 +4,7 @@ tags: [project]
 
 # Tests
 
-~200 tests, run twice: against the net8.0 build (`tests/NetSync.Tests`) and, from the same sources, against the netstandard2.1 build (`tests/NetSync.Tests.NetStandard`, `CORE_NETSTANDARD` defined — proves compilation and `#if` paths; it runs on .NET 8, not Mono).
+~260 tests, run against the net8.0 build (`tests/NetSync.Tests`) and, from the same sources, against the netstandard2.1 build (`tests/NetSync.Tests.NetStandard`, `CORE_NETSTANDARD` defined — proves compilation and `#if` paths; it runs on .NET, not Mono) — each on .NET 8 and .NET 10. CI runs them on Windows, Linux and macOS, plus a NativeAOT build of `samples/Echo` that runs `Echo selftest`.
 
 ```bash
 dotnet test NetSync.sln -c Release
@@ -26,11 +26,16 @@ dotnet test NetSync.sln -c Release
 | `TrafficTests` | congestion control on a 2 MB/s bottleneck, Low priority yielding, streams and receiver limits |
 | `ZeroAllocationTests` | per-message allocation budgets on every transport, relayed and direct, typed messages; send-buffer reuse |
 | `ScaleTests`, `UsabilityTests`, `SerializationTests`, `DiscoveryTests` | 1000 connections; messages, reconnect, dual stack; reader/writer and hostile lengths; discovery |
+| `VirtualReliabilityTests`, `SilenceTrackerTests` | the reliability layer in virtual time (no threads, no sockets): loss, jitter, dead path, our own stall, resend on a new path, congestion control on a bottleneck; keepalive rounds |
+| `UdpHandoverTests`, `UdpHandoverUnitTests`, `SendOrderTests` | UDP lost mid-session (through `TransportProxy`), the switch's ordering gate; send order under backpressure |
+| `FuzzTests` | every network parser fed mutated and random input (handshake, relay, discovery, fragments, batches, TCP framing, envelopes, channel decoding, reliability packets, WebSocket upgrade), and a live server fed garbage |
 
 ## Conventions
 
 - A test that guards a fix was checked to **fail with the fix reverted** (or, for races, a deterministic unit test covers it).
 - Allocation tests run alone (`AllocationCollection`), take the best of several windows; netstandard2.1 has its own budgets where the platform lacks allocation-free socket APIs.
 - Network tests on loopback retry raw probes and allow for punching to finish — a loaded CI machine must not make them flaky.
-- Helpers: `InMemoryTransport` (reference third-party transport, wiretap, injection), `BottleneckPipe` (virtual-time drop-tail link), NAT simulators in `RelayTests`.
+- Nothing may depend on machine speed: wait for conditions, not fixed sleeps; put timing-sensitive checks in virtual time (`VirtualNetwork`). Before a push, run the suite under a CPU cap a few times — a slow CI runner shows what a fast desktop hides.
+- Allocation tests count the whole process: they measure only once the test host is quiet, and run in Release (Debug builds allocate in every async method).
+- Helpers: `VirtualNetwork`/`VirtualPath` (virtual clock, deterministic paths with loss, jitter, bandwidth and drop-tail queues), `TransportProxy` (real TCP+UDP forwarding that can drop UDP), `InMemoryTransport` (reference third-party transport, wiretap, injection), `BottleneckPipe` (real-time drop-tail link), NAT simulators in `RelayTests`.
 - Gotcha: restoring a file with an old timestamp makes MSBuild reuse a stale binary — touch it or build with `--no-incremental`.
