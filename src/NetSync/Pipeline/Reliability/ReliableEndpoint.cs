@@ -98,6 +98,14 @@ namespace NetSync.Pipeline.Reliability {
             public readonly Dictionary<ushort, PendingPacket> Pending = new Dictionary<ushort, PendingPacket>();
             public readonly Stack<PendingPacket> Spare = new Stack<PendingPacket>();
             public TaskCompletionSource<bool>? WindowWaiter;
+            /// <summary>
+            /// A message is being admitted and others must queue behind it: messages get their
+            /// sequence numbers in the order they were sent — all fragments of one message in a
+            /// row — even when the window is full and senders don't await each send.
+            /// </summary>
+            public bool TurnHeld;
+            /// <summary>Messages waiting for the turn, oldest first (only while <see cref="TurnHeld"/>).</summary>
+            public readonly Queue<TaskCompletionSource<bool>> TurnWaiters = new Queue<TaskCompletionSource<bool>>();
             public bool Closed;
             public readonly object Lock = new object();
 
@@ -366,6 +374,20 @@ namespace NetSync.Pipeline.Reliability {
             uint id = PacketFragmenter.NextSequenceId();
             int size = FragmentSize; // one size for the whole message
             int total = Math.Max(1, (data.Length + size - 1) / size);
+            bool holdsTurn = false;
+            if (reliable) {
+                lock (sender.Lock) {
+                    if (sender.Closed) {
+                        return new ValueTask(Task.FromException(Disposed()));
+                    }
+                    holdsTurn = TryTakeTurnLocked(sender);
+                }
+                if (!holdsTurn) {
+                    // Another message is still being admitted: this one queues behind it, whole.
+                    return ContinueFragmentsAsync(default, waitForTurn: true, sender, channel, Pooled.Copy(data.Span), 0, data.Length,
+                                                  size, 0, id, total, reliable, ct);
+                }
+            }
             for (int i = 0; i < total; i++) {
                 int offset = i * size;
                 int chunkLength = Math.Min(size, data.Length - offset);
@@ -373,16 +395,26 @@ namespace NetSync.Pipeline.Reliability {
                 if (!pending.IsCompletedSuccessfully) {
                     int restStart = offset + chunkLength;
                     byte[]? rest = restStart < data.Length ? Pooled.Copy(data.Span.Slice(restStart)) : null;
-                    return ContinueFragmentsAsync(pending, sender, channel, rest, restStart, data.Length, size, i + 1, id, total, reliable, ct);
+                    return ContinueFragmentsAsync(pending, waitForTurn: false, sender, channel, rest, restStart, data.Length, size, i + 1,
+                                                  id, total, reliable, ct); // keeps the turn until the last fragment
                 }
+            }
+            if (holdsTurn) {
+                ReleaseTurn(sender);
             }
             return default;
         }
 
-        private async ValueTask ContinueFragmentsAsync(ValueTask pending, SenderState sender, byte channel, byte[]? rest, int restStart,
-                                                       int dataLength, int size, int next, uint id, int total, bool reliable, CancellationToken ct) {
-            Interlocked.Increment(ref _slowSends);
+        private async ValueTask ContinueFragmentsAsync(ValueTask pending, bool waitForTurn, SenderState sender, byte channel, byte[]? rest,
+                                                       int restStart, int dataLength, int size, int next, uint id, int total, bool reliable,
+                                                       CancellationToken ct) {
+            Interlocked.Increment(ref _slowSends); // before the first await: IsIdle never misses this send
+            bool holdsTurn = reliable && !waitForTurn;
             try {
+                if (waitForTurn) {
+                    await AcquireTurnAsync(sender, ct).ConfigureAwait(false);
+                    holdsTurn = true;
+                }
                 await pending.ConfigureAwait(false);
                 for (int i = next; i < total; i++) {
                     int offset = i * size;
@@ -392,6 +424,9 @@ namespace NetSync.Pipeline.Reliability {
                 }
             }
             finally {
+                if (holdsTurn) {
+                    ReleaseTurn(sender);
+                }
                 Interlocked.Decrement(ref _slowSends);
                 if (rest != null) {
                     Pooled.Return(rest);
@@ -399,10 +434,13 @@ namespace NetSync.Pipeline.Reliability {
             }
         }
 
+        /// <summary>One fragment; for a reliable message the caller holds the turn.</summary>
         private ValueTask SendFragment(SenderState sender, byte channel, ReadOnlyMemory<byte> chunk, FragmentInfo fragment, bool reliable, CancellationToken ct) {
             var message = BuildRelData(channel, FlagFragment, chunk.Span, fragment, out int length);
-            return reliable ? EnqueueAndSendAsync(sender, message, length, ct) : SendUnreliable(sender, message, length);
+            return reliable ? AdmitWithTurnAsync(sender, message, length, ct) : SendUnreliable(sender, message, length);
         }
+
+        private static InvalidOperationException Disposed() => new InvalidOperationException("Reliable endpoint is disposed");
 
         /// <summary>
         /// Admits a reliable packet into the window and transmits it. The fast path (window
@@ -410,29 +448,106 @@ namespace NetSync.Pipeline.Reliability {
         /// Takes ownership of the pooled <paramref name="message"/> in every outcome.
         /// </summary>
         private ValueTask EnqueueAndSendAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
-            PendingPacket? pending;
+            PendingPacket? pending = null;
+            bool holdsTurn;
             lock (sender.Lock) {
                 if (sender.Closed) {
                     Pooled.Return(message);
-                    return new ValueTask(Task.FromException(new InvalidOperationException("Reliable endpoint is disposed")));
+                    return new ValueTask(Task.FromException(Disposed()));
                 }
-                pending = TryAdmitLocked(sender, message, length);
+                holdsTurn = TryTakeTurnLocked(sender);
+                if (holdsTurn) {
+                    pending = TryAdmitLocked(sender, message, length);
+                    if (pending != null) {
+                        sender.TurnHeld = false; // admitted at once; nobody was waiting while the turn was free
+                    }
+                }
             }
             if (pending != null) {
                 return TransmitFirst(sender, pending);
             }
-            return EnqueueSlowAsync(sender, message, length, ct);
+            return EnqueueSlowAsync(sender, message, length, holdsTurn, ct);
         }
 
-        private async ValueTask EnqueueSlowAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
-            // Backpressure: wait while the seq range is a full window or the congestion
-            // window says the link has enough in flight.
+        private async ValueTask EnqueueSlowAsync(SenderState sender, byte[] message, int length, bool holdsTurn, CancellationToken ct) {
+            // Backpressure: wait for the turn (messages sent earlier come first), then while the
+            // seq range is a full window or the congestion window says enough is in flight.
             Interlocked.Increment(ref _slowSends); // before the first await: IsIdle never misses this send
             try {
+                if (!holdsTurn) {
+                    try {
+                        await AcquireTurnAsync(sender, ct).ConfigureAwait(false);
+                    }
+                    catch {
+                        Pooled.Return(message); // never admitted: still ours
+                        throw;
+                    }
+                    holdsTurn = true;
+                }
                 await EnqueueSlowCoreAsync(sender, message, length, ct).ConfigureAwait(false);
             }
             finally {
+                if (holdsTurn) {
+                    ReleaseTurn(sender);
+                }
                 Interlocked.Decrement(ref _slowSends);
+            }
+        }
+
+        /// <summary>Admits one packet for a message that holds the turn, waiting for the window if needed.</summary>
+        private ValueTask AdmitWithTurnAsync(SenderState sender, byte[] message, int length, CancellationToken ct) {
+            PendingPacket? pending;
+            lock (sender.Lock) {
+                if (sender.Closed) {
+                    Pooled.Return(message);
+                    return new ValueTask(Task.FromException(Disposed()));
+                }
+                pending = TryAdmitLocked(sender, message, length);
+            }
+            return pending != null ? TransmitFirst(sender, pending) : EnqueueSlowCoreAsync(sender, message, length, ct);
+        }
+
+        /// <summary>Takes the turn when nobody holds it. Caller holds the lock.</summary>
+        private static bool TryTakeTurnLocked(SenderState sender) {
+            if (sender.TurnHeld) {
+                return false;
+            }
+            sender.TurnHeld = true;
+            return true;
+        }
+
+        /// <summary>Waits for the turn, behind every message that asked for it earlier.</summary>
+        private static async Task AcquireTurnAsync(SenderState sender, CancellationToken ct) {
+            TaskCompletionSource<bool> turn;
+            lock (sender.Lock) {
+                if (sender.Closed) {
+                    throw Disposed();
+                }
+                if (TryTakeTurnLocked(sender)) {
+                    return;
+                }
+                turn = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                sender.TurnWaiters.Enqueue(turn);
+            }
+            if (!ct.CanBeCanceled) {
+                await turn.Task.ConfigureAwait(false);
+                return;
+            }
+            using (ct.Register(() => turn.TrySetCanceled(ct))) {
+                await turn.Task.ConfigureAwait(false); // granted before the cancellation won: the turn is ours
+            }
+        }
+
+        /// <summary>Hands the turn to the oldest waiting message, or frees it.</summary>
+        private static void ReleaseTurn(SenderState sender) {
+            lock (sender.Lock) {
+                while (sender.TurnWaiters.Count > 0) {
+                    if (sender.TurnWaiters.Dequeue().TrySetResult(true)) {
+                        return; // still held — by that message now
+                    }
+                    // cancelled or failed while waiting: skip it
+                }
+                sender.TurnHeld = false;
             }
         }
 
@@ -443,7 +558,7 @@ namespace NetSync.Pipeline.Reliability {
                     TaskCompletionSource<bool> waiter;
                     lock (sender.Lock) {
                         if (sender.Closed) {
-                            throw new InvalidOperationException("Reliable endpoint is disposed");
+                            throw Disposed();
                         }
                         pending = TryAdmitLocked(sender, message, length);
                         if (pending != null) {
@@ -1061,6 +1176,9 @@ namespace NetSync.Pipeline.Reliability {
                     sender.Pending.Clear();
                     waiter = sender.WindowWaiter;
                     sender.WindowWaiter = null;
+                    while (sender.TurnWaiters.Count > 0) {
+                        sender.TurnWaiters.Dequeue().TrySetException(Disposed());
+                    }
                 }
                 waiter?.TrySetResult(true); // blocked senders wake up and observe Closed
             }

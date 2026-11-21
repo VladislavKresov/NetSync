@@ -9,6 +9,9 @@ Wire protocol v4 (compatible with 2.0.0-rc.5; the new behaviour needs both sides
 ### Changed
 - Losing UDP mid-session no longer disconnects: the UDP channels move to TCP and the connection stays (`IsDegraded` becomes true on both sides). Reliable messages still in flight are resent over TCP before newer ones — nothing is lost, duplicated or reordered. With `RequireAllTransports = true`, or a peer older than rc.6, losing UDP disconnects as before.
 
+### Fixed
+- `ReliableOrdered` channels could deliver messages out of order when the application didn't await each send and the window was full: waiting sends raced for sequence numbers. Messages now take their sequence numbers in send order, all fragments of a message in a row.
+
 ## 2.0.0-rc.5 — 2026-11-18
 
 **Wire protocol v4. Not compatible with 2.0.0-rc.1 – rc.4: update clients and servers together.** Protocol v4 is the stable contract from here on — later releases extend it through negotiated features instead of replacing it.
