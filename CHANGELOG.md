@@ -2,7 +2,7 @@
 
 Versions follow [Semantic Versioning](https://semver.org). The wire protocol has its own version, noted for each release: peers must speak the same one.
 
-## 2.0.0-rc.6 — unreleased
+## 2.0.0-rc.6 — 2026-11-21
 
 Wire protocol v4 (compatible with 2.0.0-rc.5; the new behaviour needs both sides on rc.6).
 
@@ -12,6 +12,12 @@ Wire protocol v4 (compatible with 2.0.0-rc.5; the new behaviour needs both sides
 ### Fixed
 - A client link closed right after it opened could crash the process: its receive thread, starting late, read a disposed cancellation source. Client transports no longer dispose it.
 - `ReliableOrdered` channels could deliver messages out of order when the application didn't await each send and the window was full: waiting sends raced for sequence numbers. Messages now take their sequence numbers in send order, all fragments of a message in a row.
+
+### Added
+- The public API is checked against 2.0.0-rc.5 on every build: a breaking change fails the package build.
+- CI builds a sample as a NativeAOT binary and runs it (an encrypted connection over TCP and reliable UDP).
+- Tests of the reliability layer in virtual time, fuzzing of every network parser, UDP loss mid-session through a proxy.
+- Documentation uses standard Markdown links and reads on GitHub; CI checks every link.
 
 ## 2.0.0-rc.5 — 2026-11-18
 
