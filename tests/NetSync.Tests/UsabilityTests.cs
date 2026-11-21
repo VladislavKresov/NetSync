@@ -135,8 +135,9 @@ namespace NetSync.Tests {
 
         [Fact]
         public async Task Client_Reconnects_After_Server_Restart() {
+            // The default ping timeout: the server's leaving is seen from its Bye or closed TCP, and
+            // a shorter timeout would only let a busy machine drop the reconnected session again.
             var config = MakeConfig();
-            config.PingTimeoutMs = 1000;
             config.Reconnect = new ReconnectPolicy { InitialDelayMs = 100, MaxDelayMs = 300, MaxAttempts = 50 };
 
             var server = new NetServer(MakeConfig());
