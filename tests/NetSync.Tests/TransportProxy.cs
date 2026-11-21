@@ -31,11 +31,26 @@ namespace NetSync.Tests {
 
         public TransportProxy(int serverPort) {
             _server = new IPEndPoint(IPAddress.Loopback, serverPort);
-            _tcp = new TcpListener(IPAddress.Loopback, 0);
-            _tcp.Start();
-            Port = ((IPEndPoint)_tcp.LocalEndpoint).Port;
-            _udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            _udp.Bind(new IPEndPoint(IPAddress.Loopback, Port));
+            // One port number for both protocols: the system picks a free TCP port, which may be
+            // taken for UDP by someone else (other test processes run in parallel) — then another.
+            for (int attempt = 0; ; attempt++) {
+                var tcp = new TcpListener(IPAddress.Loopback, 0);
+                tcp.Start();
+                int port = ((IPEndPoint)tcp.LocalEndpoint).Port;
+                var udp = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+                try {
+                    udp.Bind(new IPEndPoint(IPAddress.Loopback, port));
+                }
+                catch (SocketException) when (attempt < 50) {
+                    udp.Dispose();
+                    tcp.Stop();
+                    continue;
+                }
+                _tcp = tcp;
+                _udp = udp;
+                Port = port;
+                break;
+            }
             _ = Task.Run(AcceptLoopAsync);
             _ = Task.Run(ClientToServerLoop);
         }
