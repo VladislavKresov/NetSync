@@ -40,7 +40,10 @@ namespace NetSync.Tests {
             public int ReceiveFrom(byte[] buffer, out IPEndPoint remote) {
                 while (true) {
                     int received = _inner.ReceiveFrom(buffer, out remote);
-                    if (_contacted.ContainsKey(remote)) {
+                    // Empty: the socket waking its own receive before it closes (UdpSockets.Close) —
+                    // that never crosses a NAT. Dropping it would leave the receive blocked, and on
+                    // macOS the close waits for a blocked receive: the test would hang in teardown.
+                    if (received == 0 || _contacted.ContainsKey(remote)) {
                         return received;
                     }
                     Interlocked.Increment(ref Dropped); // unsolicited: the NAT drops it
