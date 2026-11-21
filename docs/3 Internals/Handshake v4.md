@@ -36,7 +36,7 @@ sequenceDiagram
 
 - Hello is resent every 200 ms until Welcome (datagrams get lost; duplicates are idempotent). Join is resent every 300 ms.
 - A mismatch at step 3 → `Reject [reason]` → `ConnectionRejectedException` (ProtocolVersion, Configuration, ApplicationMismatch, Encryption).
-- If UDP stays silent for `TransportFallbackTimeoutMs`, the client sends `Degrade` over TCP instead and the connection opens without UDP ([[Connecting and approval#When UDP is blocked]]).
+- If UDP stays silent for `TransportFallbackTimeoutMs`, the client sends `Degrade` over TCP instead and the connection opens without UDP ([When UDP is blocked](../2%20Guides/Connecting%20and%20approval.md#when-udp-is-blocked)).
 - The connection opens only after Join and JoinAccept have crossed inside the envelope: that exchange is what confirms both sides hold the same keys. Envelopes that fail verification while connecting mean the keys differ — a wrong pre-shared key (`Authentication`) or a server that does not hold the identity it presented (`ServerIdentity`).
 
 ## Messages
@@ -79,9 +79,9 @@ secret  = HKDF-SHA256(salt = SHA-256(transcript),
 
 What authenticates the exchange is part of the key material itself: only a holder of the pre-shared key, or of the identity's private key, arrives at the same `secret`. No signatures are involved.
 
-`transcript = "NetSync/4 handshake" ‖ token ‖ configHash ‖ keyExchange ‖ offeredSuites ‖ appId ‖ appVersion ‖ offeredFeatures ‖ len ‖ clientKey ‖ chosenSuite ‖ agreedFeatures ‖ len ‖ serverKey ‖ len ‖ identityKey` — every negotiated value, so none can be altered in transit without the two sides ending up with different keys. Per-direction keys are then derived from `secret` ([[Keys and envelope]]).
+`transcript = "NetSync/4 handshake" ‖ token ‖ configHash ‖ keyExchange ‖ offeredSuites ‖ appId ‖ appVersion ‖ offeredFeatures ‖ len ‖ clientKey ‖ chosenSuite ‖ agreedFeatures ‖ len ‖ serverKey ‖ len ‖ identityKey` — every negotiated value, so none can be altered in transit without the two sides ending up with different keys. Per-direction keys are then derived from `secret` ([Keys and envelope](Keys%20and%20envelope.md)).
 
-The key exchange is the library's own code ([[X25519]], checked against RFC 7748), so it behaves the same on every runtime, Unity included.
+The key exchange is the library's own code ([X25519](../Code/Pipeline/Security/X25519.md), checked against RFC 7748), so it behaves the same on every runtime, Unity included.
 
 ## UDP-only server: cookie first
 
@@ -109,4 +109,4 @@ No keys are generated and no connection exists until the client has proven it re
 | Welcome built once, identical on every link | one key exchange per connection |
 | `ConnectionOpened` before `JoinAccept` | nothing the client sends can arrive ahead of the event |
 
-Code: [[NetClient]] (`NetClient.Connect.cs`: `ConnectCoreAsync`, `SendHelloLoopAsync`, `HandleWelcome`, `EstablishKeys`, `JoinAsync`), [[NetServer]] (`NetServer.Handshake.cs`: `HandleHello`, `MayCreateConnection`, `ComputeCookie`, `CreateConnection`, `HandleJoin`, `ApproveAsync`), [[PeerProtocol]], `HandshakeKeys`.
+Code: [NetClient](../Code/Peers/NetClient.md) (`NetClient.Connect.cs`: `ConnectCoreAsync`, `SendHelloLoopAsync`, `HandleWelcome`, `EstablishKeys`, `JoinAsync`), [NetServer](../Code/Peers/NetServer.md) (`NetServer.Handshake.cs`: `HandleHello`, `MayCreateConnection`, `ComputeCookie`, `CreateConnection`, `HandleJoin`, `ApproveAsync`), [PeerProtocol](../Code/Peers/PeerProtocol.md), `HandshakeKeys`.

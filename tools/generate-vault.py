@@ -1,4 +1,4 @@
-"""Generates the code reference and dependency diagrams of the Obsidian vault in docs/.
+"""Generates the code reference and dependency diagrams in docs/.
 
     python tools/generate-vault.py
 
@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import sys
 from collections import defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -236,10 +237,26 @@ def kind_label(t):
     return " ".join(mods + [t["kind"]])
 
 
+_outputs = {}
+
+
 def write(path, text):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
+    """Queued: written by flush() once every note's path is known, so links between them resolve."""
+    _outputs[path] = text
+
+
+def flush():
+    """Writes the queued notes with standard Markdown links (see mdlinks.py)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import mdlinks
+    index = mdlinks.build_index(mdlinks.scan() + list(_outputs))
+    missing = set()
+    for path, text in _outputs.items():
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text if path.endswith(".canvas") else mdlinks.convert(text, path, index, missing))
+    if missing:
+        print("links to notes that don't exist: " + ", ".join(sorted(missing)))
 
 
 def code_note(module, modules):
@@ -593,6 +610,7 @@ def main():
     for name, note in module_maps(modules).items():
         write(os.path.join(maps_dir, name + ".md"), note)
     write(os.path.join(DIAGRAMS, "Architecture.canvas"), canvas(modules, edges))
+    flush()
     total = sum(len(m.deps) for m in modules.values())
     print(f"{len(modules)} modules, {sum(len(m.types) for m in modules.values())} types, {total} dependencies")
 

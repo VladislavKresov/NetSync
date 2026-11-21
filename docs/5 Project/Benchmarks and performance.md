@@ -45,4 +45,4 @@ Windows 11, Ryzen 9 5900X, .NET 8, client and server in one process (2026-10-16)
 | UDP batching + collapsed acks (stage 20) | unreliable 101 k → 1.2 M, reliable-ordered 62 k → 0.2 M |
 | Relay address caches, closure fixes (review) | relayed paths 32–700 B → 0 B per round trip |
 
-Where reliable-ordered could go next: [[Known limitations]]. Why datagram count matters: [[UDP batching]].
+Where reliable-ordered could go next: [Known limitations](Known%20limitations.md). Why datagram count matters: [UDP batching](../3%20Internals/UDP%20batching.md).

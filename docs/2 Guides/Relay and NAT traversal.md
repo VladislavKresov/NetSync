@@ -4,7 +4,7 @@ tags: [guide]
 
 # Relay and NAT traversal
 
-A player-hosted server behind a home router can't accept connections from the internet. [[NetRelayServer]] — run anywhere with a public address — gives it a **room**; players join by room code.
+A player-hosted server behind a home router can't accept connections from the internet. [NetRelayServer](../Code/Relay/NetRelayServer.md) — run anywhere with a public address — gives it a **room**; players join by room code.
 
 ```csharp
 // The relay
@@ -55,4 +55,4 @@ flowchart LR
 
 **Relay restarts:** the host reclaims its room in the background (0.5 → 30 s backoff); clients reconnect through their own `ReconnectPolicy`.
 
-How it works: [[Relay internals]]. Modules: [[RelayRoom]], [[RelayHostSession]], [[RelayStreamTransports]], [[RelayDatagramTransports]], [[RelayProtocol]]. Sample: [[Samples#Relay]].
+How it works: [Relay internals](../3%20Internals/Relay%20internals.md). Modules: [RelayRoom](../Code/Relay/RelayRoom.md), [RelayHostSession](../Code/Relay/RelayHostSession.md), [RelayStreamTransports](../Code/Relay/RelayStreamTransports.md), [RelayDatagramTransports](../Code/Relay/RelayDatagramTransports.md), [RelayProtocol](../Code/Relay/RelayProtocol.md). Sample: [Relay](Samples.md#relay).

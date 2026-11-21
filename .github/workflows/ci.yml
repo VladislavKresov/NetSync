@@ -58,7 +58,9 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
-      - name: Pack
+      - name: Docs links (every relative link and heading anchor resolves)
+        run: python3 tools/mdlinks.py --check
+      - name: Pack (fails when the public API breaks compatibility with the baseline release)
         run: dotnet pack src/NetSync/NetSync.csproj -c Release -o artifacts
       - name: Unity package (the release publishes it)
         run: |

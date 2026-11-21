@@ -18,7 +18,7 @@ server.ConnectionApprover = async request => {
 serverConfig.MaxConnections = 500;   // "server full" beyond it
 ```
 
-Types: [[ConnectionApproval]] (`ConnectionRequest`, `ConnectionDecision`, `ConnectionApprover`, `ConnectionRejectedException`).
+Types: [ConnectionApproval](../Code/Peers/ConnectionApproval.md) (`ConnectionRequest`, `ConnectionDecision`, `ConnectionApprover`, `ConnectionRejectedException`).
 
 ## Client connection lifecycle
 
@@ -47,7 +47,7 @@ stateDiagram-v2
 - The server raises `ConnectionOpened` before it sends `JoinAccept`, so nothing the client sends can arrive before the event.
 - `MaxConnections` is reserved *before* the approver runs: simultaneous joins can't overshoot it.
 
-Protocol details: [[Handshake v4]].
+Protocol details: [Handshake v4](../3%20Internals/Handshake%20v4.md).
 
 ## When UDP is blocked
 
@@ -65,4 +65,4 @@ await server.Connections.First().DisconnectAsync();            // kick: Bye on e
 Console.WriteLine(client.Statistics);                          // messages, bytes, ping, RTT, retransmits
 ```
 
-Auto-reconnect follows timeouts, errors and server restarts — never your own `Disconnect()`, a kick, or a refusal retrying can't fix. Each reconnect is a new connection on the server. [[DisconnectReason]], [[NetStatistics]].
+Auto-reconnect follows timeouts, errors and server restarts — never your own `Disconnect()`, a kick, or a refusal retrying can't fix. Each reconnect is a new connection on the server. [DisconnectReason](../Code/Transports/DisconnectReason.md), [NetStatistics](../Code/Diagnostics/NetStatistics.md).

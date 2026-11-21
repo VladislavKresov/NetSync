@@ -24,4 +24,4 @@ flowchart LR
 - In Immediate mode keep handlers short: a slow handler holds up that link's receive loop.
 - Handler exceptions are caught and logged, never propagated into network threads.
 
-Module: [[EventDispatcher]]. Thread inventory and locking rules: [[Threads and loops]].
+Module: [EventDispatcher](../Code/Peers/EventDispatcher.md). Thread inventory and locking rules: [Threads and loops](../3%20Internals/Threads%20and%20loops.md).

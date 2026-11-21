@@ -52,7 +52,7 @@ Console.ReadLine();
 ## Next steps
 
 - [Samples](samples): `Echo`, `SecureLogin`, `FileTransfer`, `Relay`, `WebSocket`. Run one with `dotnet run --project samples/Echo -- server 7777`.
-- [Documentation](docs/Home.md): guides, protocol and internals.
+- [Documentation](docs/README.md): guides, protocol and internals.
 - [Security guide](docs/2%20Guides/Security.md): the default configuration has no encryption or authentication, so turn them on for anything beyond a trusted network.
 - [NetSync for Unity](https://github.com/VladislavKresov/NetSync.Unity): the Unity adapter.
 

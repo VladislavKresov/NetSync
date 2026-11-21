@@ -32,9 +32,9 @@ await client.SendAsync(0, Encoding.UTF8.GetBytes("hello"));
 
 ## What happens
 
-1. `StartAsync` binds one port for TCP and UDP (dual-stack IPv6+IPv4) — [[NetServer]].
-2. `ConnectAsync` opens both links, runs the [[Handshake v4]] on each, then joins; the server raises `ConnectionOpened`.
-3. Channel 0 goes over TCP, 1 straight over UDP, 2 through the [[ReliableEndpoint]] over UDP — [[Send path]].
+1. `StartAsync` binds one port for TCP and UDP (dual-stack IPv6+IPv4) — [NetServer](../Code/Peers/NetServer.md).
+2. `ConnectAsync` opens both links, runs the [Handshake v4](../3%20Internals/Handshake%20v4.md) on each, then joins; the server raises `ConnectionOpened`.
+3. Channel 0 goes over TCP, 1 straight over UDP, 2 through the [ReliableEndpoint](../Code/Pipeline/Reliability/ReliableEndpoint.md) over UDP — [Send path](../3%20Internals/Send%20path.md).
 
 ## Two ways to receive
 
@@ -43,8 +43,8 @@ await client.SendAsync(0, Encoding.UTF8.GetBytes("hello"));
 | `MessageReceived` | the network buffer itself, valid until the handler returns | zero copies |
 | `DataReceived` | an owned `byte[]` | one array per message |
 
-Pass `MessageReceived` data straight to `SendAsync` (it copies before returning) or copy it (`data.ToArray()`) to keep it. **Send contract**: `SendAsync` reads your buffer only before it returns — reuse or pool it immediately ([[Receive path]], [[Send path]]).
+Pass `MessageReceived` data straight to `SendAsync` (it copies before returning) or copy it (`data.ToArray()`) to keep it. **Send contract**: `SendAsync` reads your buffer only before it returns — reuse or pool it immediately ([Receive path](../3%20Internals/Receive%20path.md), [Send path](../3%20Internals/Send%20path.md)).
 
 ## Next
 
-[[Channels and delivery modes]] · [[Security]] · [[Threading and events]] (`Polled` vs `Immediate`) · [[Samples]]
+[Channels and delivery modes](Channels%20and%20delivery%20modes.md) · [Security](Security.md) · [Threading and events](Threading%20and%20events.md) (`Polled` vs `Immediate`) · [Samples](Samples.md)

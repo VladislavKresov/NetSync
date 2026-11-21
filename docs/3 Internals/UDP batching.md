@@ -4,7 +4,7 @@ tags: [internals, diagram]
 
 # UDP batching
 
-On Windows loopback one datagram send costs ~7.5 µs — sending fewer datagrams is what makes UDP fast. [[DatagramBatcher]] packs small packets to the same destination into one datagram **without delaying anything**.
+On Windows loopback one datagram send costs ~7.5 µs — sending fewer datagrams is what makes UDP fast. [DatagramBatcher](../Code/Transports/Udp/DatagramBatcher.md) packs small packets to the same destination into one datagram **without delaying anything**.
 
 ```mermaid
 sequenceDiagram
@@ -39,4 +39,4 @@ sequenceDiagram
 | Unreliable | 101 k msg/s | 1.1–1.3 M msg/s |
 | Reliable-ordered (with collapsed acks) | 62 k | 0.18–0.25 M |
 
-Code: [[DatagramBatcher]], [[UdpTransport]], [[UdpServerTransport]], [[AsyncSignal]]. Related: [[Reliable UDP#Acks]].
+Code: [DatagramBatcher](../Code/Transports/Udp/DatagramBatcher.md), [UdpTransport](../Code/Transports/Udp/UdpTransport.md), [UdpServerTransport](../Code/Transports/Udp/UdpServerTransport.md), [AsyncSignal](../Code/Internal/AsyncSignal.md). Related: [Acks](Reliable%20UDP.md#acks).

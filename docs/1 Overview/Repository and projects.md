@@ -16,7 +16,7 @@ flowchart LR
   nuget["NuGet package NetSync"] --- core
 ```
 
-The core has **no** package references; the only external package anywhere is LiteNetLib in the benchmark project, for the side-by-side comparison ([[Benchmarks and performance]]).
+The core has **no** package references; the only external package anywhere is LiteNetLib in the benchmark project, for the side-by-side comparison ([Benchmarks and performance](../5%20Project/Benchmarks%20and%20performance.md)).
 
 ## Layout
 
@@ -38,13 +38,13 @@ docs/                        this vault
 README.md, ARCHITECTURE.md
 ```
 
-Per-folder module lists with diagrams: see [[Code index]] and `4 Diagrams/Modules`.
+Per-folder module lists with diagrams: see [Code index](../Code/Code%20index.md) and `4 Diagrams/Modules`.
 
 ## Partial classes
 
-[[NetClient]] and [[NetServer]] are split by concern into partial files — one code note each covers all parts:
+[NetClient](../Code/Peers/NetClient.md) and [NetServer](../Code/Peers/NetServer.md) are split by concern into partial files — one code note each covers all parts:
 
 | Module | Files |
 |---|---|
-| [[NetClient]] | `NetClient.cs` (API, send/receive, session end), `NetClient.Connect.cs` (links, handshake, fallback, join), `NetClient.Services.cs` (clock sync, MTU, reconnect) |
-| [[NetServer]] | `NetServer.cs` (API, listeners, dispatch, send, stop), `NetServer.Handshake.cs` (hello, cookies, keys, join, approval, slots) |
+| [NetClient](../Code/Peers/NetClient.md) | `NetClient.cs` (API, send/receive, session end), `NetClient.Connect.cs` (links, handshake, fallback, join), `NetClient.Services.cs` (clock sync, MTU, reconnect) |
+| [NetServer](../Code/Peers/NetServer.md) | `NetServer.cs` (API, listeners, dispatch, send, stop), `NetServer.Handshake.cs` (hello, cookies, keys, join, approval, slots) |

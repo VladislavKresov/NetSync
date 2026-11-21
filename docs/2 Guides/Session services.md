@@ -11,7 +11,7 @@ double serverNow = client.ServerTimeMs;       // NaN until the first sync; compa
 double error = client.ServerTimeAccuracyMs;   // worst case: half the best round trip
 ```
 
-NTP-style: five quick round trips after joining, then one every 2 s; the estimate uses the minimum-RTT sample of the last eight, so a congested round trip can't skew it ([[ClockSync]], `MsgTimeRequest`/`MsgTimeResponse` in [[PeerProtocol]]). The server answers on the receive thread, prefers the UDP link. Measured error on loopback ≈ 0.001 ms.
+NTP-style: five quick round trips after joining, then one every 2 s; the estimate uses the minimum-RTT sample of the last eight, so a congested round trip can't skew it ([ClockSync](../Code/Peers/ClockSync.md), `MsgTimeRequest`/`MsgTimeResponse` in [PeerProtocol](../Code/Peers/PeerProtocol.md)). The server answers on the receive thread, prefers the UDP link. Measured error on loopback ≈ 0.001 ms.
 
 ## Connectionless queries (server browsers)
 
@@ -20,7 +20,7 @@ server.QueryHandler = (from, request) => Encoding.UTF8.GetBytes($"{name}|{map}|{
 var result = await NetQuery.QueryAsync(serverEndPoint, ReadOnlyMemory<byte>.Empty, maxResponseSize: 512);
 ```
 
-Safe on the open internet: a reply is never larger than the query (clients pad their queries), answers are rate-limited (1000/s token bucket), the handler runs on the UDP receive thread — keep it fast. [[NetQuery]], [[UdpServerTransport]].
+Safe on the open internet: a reply is never larger than the query (clients pad their queries), answers are rate-limited (1000/s token bucket), the handler runs on the UDP receive thread — keep it fast. [NetQuery](../Code/Discovery/NetQuery.md), [UdpServerTransport](../Code/Transports/Udp/UdpServerTransport.md).
 
 ## LAN discovery
 
@@ -32,11 +32,11 @@ listener.ServerDiscovered += found => Console.WriteLine($"{found.EndPoint}: {Enc
 listener.Start();
 ```
 
-Broadcast from every LAN interface every 2 s (falls back to an OS-chosen interface when none is recognised). [[LanServerBroadcaster]], [[LanServerListener]], [[DiscoveryMessage]].
+Broadcast from every LAN interface every 2 s (falls back to an OS-chosen interface when none is recognised). [LanServerBroadcaster](../Code/Discovery/LanServerBroadcaster.md), [LanServerListener](../Code/Discovery/LanServerListener.md), [DiscoveryMessage](../Code/Discovery/DiscoveryMessage.md).
 
 ## Path MTU
 
-After connecting, the client probes the path with don't-fragment datagrams (IPv4) and tells the server (`MsgPathMtu`); reliable UDP then uses fragments up to 1453 B instead of 1100 B. `NetConfig.MtuDiscovery` (on by default). [[PathMtuProbe]], [[Reliable UDP]].
+After connecting, the client probes the path with don't-fragment datagrams (IPv4) and tells the server (`MsgPathMtu`); reliable UDP then uses fragments up to 1453 B instead of 1100 B. `NetConfig.MtuDiscovery` (on by default). [PathMtuProbe](../Code/Transports/Udp/PathMtuProbe.md), [Reliable UDP](../3%20Internals/Reliable%20UDP.md).
 
 ## Network simulator
 
@@ -44,4 +44,4 @@ After connecting, the client probes the path with don't-fragment datagrams (IPv4
 config.Simulation = new NetworkSimulation { LatencyMs = 80, JitterMs = 20, LossRate = 0.05, DuplicateRate = 0.01, Seed = 42 };
 ```
 
-Wraps every link of that peer (datagram links get loss/duplication, stream links keep order). [[NetworkSimulation]], [[SimulatedTransportFactory]].
+Wraps every link of that peer (datagram links get loss/duplication, stream links keep order). [NetworkSimulation](../Code/Transports/Simulation/NetworkSimulation.md), [SimulatedTransportFactory](../Code/Transports/Simulation/SimulatedTransportFactory.md).

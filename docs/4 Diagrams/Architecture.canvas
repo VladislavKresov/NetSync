@@ -931,22 +931,6 @@
  ],
  "edges": [
   {
-   "id": "e_f__root__f_Pipeline_Security",
-   "fromNode": "f__root_",
-   "fromSide": "bottom",
-   "toNode": "f_Pipeline_Security",
-   "toSide": "top",
-   "label": "1"
-  },
-  {
-   "id": "e_f__root__f_Transports_Simulation",
-   "fromNode": "f__root_",
-   "fromSide": "bottom",
-   "toNode": "f_Transports_Simulation",
-   "toSide": "top",
-   "label": "2"
-  },
-  {
    "id": "e_f__root__f_Pipeline_Reliability",
    "fromNode": "f__root_",
    "fromSide": "bottom",
@@ -959,6 +943,22 @@
    "fromNode": "f__root_",
    "fromSide": "bottom",
    "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "2"
+  },
+  {
+   "id": "e_f__root__f_Pipeline_Security",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
+   "id": "e_f__root__f_Transports_Simulation",
+   "fromNode": "f__root_",
+   "fromSide": "bottom",
+   "toNode": "f_Transports_Simulation",
    "toSide": "top",
    "label": "2"
   },
@@ -979,14 +979,6 @@
    "label": "1"
   },
   {
-   "id": "e_f_Messaging_f_Peers",
-   "fromNode": "f_Messaging",
-   "fromSide": "bottom",
-   "toNode": "f_Peers",
-   "toSide": "top",
-   "label": "3"
-  },
-  {
    "id": "e_f_Messaging_f_Serialization",
    "fromNode": "f_Messaging",
    "fromSide": "bottom",
@@ -995,12 +987,12 @@
    "label": "2"
   },
   {
-   "id": "e_f_Peers_f_Pipeline_Security",
-   "fromNode": "f_Peers",
+   "id": "e_f_Messaging_f_Peers",
+   "fromNode": "f_Messaging",
    "fromSide": "bottom",
-   "toNode": "f_Pipeline_Security",
+   "toNode": "f_Peers",
    "toSide": "top",
-   "label": "16"
+   "label": "3"
   },
   {
    "id": "e_f_Peers_f__root_",
@@ -1011,6 +1003,14 @@
    "label": "9"
   },
   {
+   "id": "e_f_Peers_f_Pipeline_Security",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Security",
+   "toSide": "top",
+   "label": "16"
+  },
+  {
    "id": "e_f_Peers_f_Pipeline_Compression",
    "fromNode": "f_Peers",
    "fromSide": "bottom",
@@ -1019,12 +1019,12 @@
    "label": "1"
   },
   {
-   "id": "e_f_Peers_f_Transports",
+   "id": "e_f_Peers_f_Sending",
    "fromNode": "f_Peers",
    "fromSide": "bottom",
-   "toNode": "f_Transports",
+   "toNode": "f_Sending",
    "toSide": "top",
-   "label": "14"
+   "label": "2"
   },
   {
    "id": "e_f_Peers_f_Pipeline_Reliability",
@@ -1035,20 +1035,20 @@
    "label": "6"
   },
   {
+   "id": "e_f_Peers_f_Transports",
+   "fromNode": "f_Peers",
+   "fromSide": "bottom",
+   "toNode": "f_Transports",
+   "toSide": "top",
+   "label": "14"
+  },
+  {
    "id": "e_f_Peers_f_Transports_Udp",
    "fromNode": "f_Peers",
    "fromSide": "bottom",
    "toNode": "f_Transports_Udp",
    "toSide": "top",
    "label": "3"
-  },
-  {
-   "id": "e_f_Peers_f_Sending",
-   "fromNode": "f_Peers",
-   "fromSide": "bottom",
-   "toNode": "f_Sending",
-   "toSide": "top",
-   "label": "2"
   },
   {
    "id": "e_f_Peers_f_Transports_Simulation",
@@ -1075,20 +1075,20 @@
    "label": "1"
   },
   {
+   "id": "e_f_Pipeline_Reliability_f__root_",
+   "fromNode": "f_Pipeline_Reliability",
+   "fromSide": "bottom",
+   "toNode": "f__root_",
+   "toSide": "top",
+   "label": "1"
+  },
+  {
    "id": "e_f_Pipeline_Reliability_f_Pipeline_Fragmentation",
    "fromNode": "f_Pipeline_Reliability",
    "fromSide": "bottom",
    "toNode": "f_Pipeline_Fragmentation",
    "toSide": "top",
    "label": "2"
-  },
-  {
-   "id": "e_f_Pipeline_Reliability_f_Peers",
-   "fromNode": "f_Pipeline_Reliability",
-   "fromSide": "bottom",
-   "toNode": "f_Peers",
-   "toSide": "top",
-   "label": "1"
   },
   {
    "id": "e_f_Pipeline_Reliability_f_Transports",
@@ -1099,10 +1099,10 @@
    "label": "1"
   },
   {
-   "id": "e_f_Pipeline_Reliability_f__root_",
+   "id": "e_f_Pipeline_Reliability_f_Peers",
    "fromNode": "f_Pipeline_Reliability",
    "fromSide": "bottom",
-   "toNode": "f__root_",
+   "toNode": "f_Peers",
    "toSide": "top",
    "label": "1"
   },
@@ -1139,6 +1139,14 @@
    "label": "6"
   },
   {
+   "id": "e_f_Relay_f_Sending",
+   "fromNode": "f_Relay",
+   "fromSide": "bottom",
+   "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "6"
+  },
+  {
    "id": "e_f_Relay_f_Transports_Tcp",
    "fromNode": "f_Relay",
    "fromSide": "bottom",
@@ -1153,14 +1161,6 @@
    "toNode": "f_Transports",
    "toSide": "top",
    "label": "28"
-  },
-  {
-   "id": "e_f_Relay_f_Sending",
-   "fromNode": "f_Relay",
-   "fromSide": "bottom",
-   "toNode": "f_Sending",
-   "toSide": "top",
-   "label": "6"
   },
   {
    "id": "e_f_Relay_f_Pipeline_Security",
@@ -1187,20 +1187,20 @@
    "label": "2"
   },
   {
-   "id": "e_f_Transports_f_Pipeline_Fragmentation",
-   "fromNode": "f_Transports",
-   "fromSide": "bottom",
-   "toNode": "f_Pipeline_Fragmentation",
-   "toSide": "top",
-   "label": "4"
-  },
-  {
    "id": "e_f_Transports_f_Sending",
    "fromNode": "f_Transports",
    "fromSide": "bottom",
    "toNode": "f_Sending",
    "toSide": "top",
    "label": "5"
+  },
+  {
+   "id": "e_f_Transports_f_Pipeline_Fragmentation",
+   "fromNode": "f_Transports",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Fragmentation",
+   "toSide": "top",
+   "label": "4"
   },
   {
    "id": "e_f_Transports_f_Pipeline_Reliability",
@@ -1251,18 +1251,18 @@
    "label": "21"
   },
   {
-   "id": "e_f_Transports_Tcp_f_Pipeline_Fragmentation",
-   "fromNode": "f_Transports_Tcp",
-   "fromSide": "bottom",
-   "toNode": "f_Pipeline_Fragmentation",
-   "toSide": "top",
-   "label": "4"
-  },
-  {
    "id": "e_f_Transports_Tcp_f_Sending",
    "fromNode": "f_Transports_Tcp",
    "fromSide": "bottom",
    "toNode": "f_Sending",
+   "toSide": "top",
+   "label": "4"
+  },
+  {
+   "id": "e_f_Transports_Tcp_f_Pipeline_Fragmentation",
+   "fromNode": "f_Transports_Tcp",
+   "fromSide": "bottom",
+   "toNode": "f_Pipeline_Fragmentation",
    "toSide": "top",
    "label": "4"
   },

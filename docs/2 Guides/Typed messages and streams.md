@@ -25,11 +25,11 @@ await messenger.SendAsync(0, new Chat { Author = "Anna", Text = "hi" });
 - Struct messages cost **no allocation** either way: sends serialize into a per-thread writer, dispatch reads a copy-on-write handler table without locks.
 - Unknown ids and malformed bodies raise `UnknownMessage` / `MalformedMessage` instead of throwing.
 
-Modules: [[NetMessages]] (`INetMessage`, `NetMessageRegistry`, `MessageDispatcher`, messengers), [[NetWriter]], [[NetReader]].
+Modules: [NetMessages](../Code/Messaging/NetMessages.md) (`INetMessage`, `NetMessageRegistry`, `MessageDispatcher`, messengers), [NetWriter](../Code/Serialization/NetWriter.md), [NetReader](../Code/Serialization/NetReader.md).
 
 ## Serialization primitives
 
-[[NetWriter]] / [[NetReader]]: little-endian primitives, LEB128 var-ints (ZigZag for signed), length-prefixed UTF-8, GUIDs. The reader throws only `EndOfStreamException` on truncated or hostile input — any length prefix beyond the remaining bytes included.
+[NetWriter](../Code/Serialization/NetWriter.md) / [NetReader](../Code/Serialization/NetReader.md): little-endian primitives, LEB128 var-ints (ZigZag for signed), length-prefixed UTF-8, GUIDs. The reader throws only `EndOfStreamException` on truncated or hostile input — any length prefix beyond the remaining bytes included.
 
 ## Streams: files of any size
 
@@ -56,8 +56,8 @@ sequenceDiagram
   R->>R: length check, flush, StreamCompleted
 ```
 
-- Memory stays at a few MB: backpressure of the [[SendQueue]] or the reliable window paces the reader.
+- Memory stays at a few MB: backpressure of the [SendQueue](../Code/Sending/SendQueue.md) or the reliable window paces the reader.
 - Use an ordered reliable channel dedicated to streams, ideally `ChannelPriority.Low`.
 - The receiver opens at most `MaxActiveStreams` (16) at once (`StreamRefused` beyond), ends a stream with `StreamFailed` when the destination can't be written, and the name comes from the remote — sanitize it.
 
-Module: [[NetStreams]]. Sample: [[Samples#FileTransfer]].
+Module: [NetStreams](../Code/Streams/NetStreams.md). Sample: [FileTransfer](Samples.md#filetransfer).

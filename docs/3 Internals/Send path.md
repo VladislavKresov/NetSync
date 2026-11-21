@@ -4,7 +4,7 @@ tags: [internals, diagram]
 
 # Send path
 
-`client.SendAsync(channel, data)` — the server side ([[NetConnection]] → [[NetServer]]) is the same with `SendToLinkAsync`.
+`client.SendAsync(channel, data)` — the server side ([NetConnection](../Code/Peers/NetConnection.md) → [NetServer](../Code/Peers/NetServer.md)) is the same with `SendToLinkAsync`.
 
 ```mermaid
 flowchart TD
@@ -28,9 +28,9 @@ flowchart TD
 
 ## Rules this path keeps
 
-- **Caller memory is read only before `SendAsync` returns.** Every copy happens synchronously (into a pooled frame, a batch, a reliable `PendingPacket`); bulk paths copy the rest the moment they would have to wait ([[BulkSender]], [[ReliableEndpoint]]).
-- **No allocation per message**: cached prefixes, pooled buffers, struct jobs, `AsyncSignal` wake-ups ([[Pooled]], [[AsyncSignal]], [[SendQueue]], [[DatagramBatcher]]).
-- **A lone message is never delayed**: queues wake their drain loop at once; batching only packs what arrives while a socket call is in progress ([[UDP batching]]).
+- **Caller memory is read only before `SendAsync` returns.** Every copy happens synchronously (into a pooled frame, a batch, a reliable `PendingPacket`); bulk paths copy the rest the moment they would have to wait ([BulkSender](../Code/Transports/BulkSender.md), [ReliableEndpoint](../Code/Pipeline/Reliability/ReliableEndpoint.md)).
+- **No allocation per message**: cached prefixes, pooled buffers, struct jobs, `AsyncSignal` wake-ups ([Pooled](../Code/Internal/Pooled.md), [AsyncSignal](../Code/Internal/AsyncSignal.md), [SendQueue](../Code/Sending/SendQueue.md), [DatagramBatcher](../Code/Transports/Udp/DatagramBatcher.md)).
+- **A lone message is never delayed**: queues wake their drain loop at once; batching only packs what arrives while a socket call is in progress ([UDP batching](UDP%20batching.md)).
 - **Backpressure**: `SendQueue` fails fast for real-time sends when full, waits for bulk; reliable channels wait for window/cwnd; UDP batches are capped at 256 KB per destination (beyond = dropped, like a full socket buffer).
 
-Code: [[NetClient]] (`SendAsync`, `Route`, `SendOnLinkAsync`), [[ChannelTransform]], [[PeerProtocol]] (`DataPrefix`), [[LinkSecurity]], [[PacketProtocol]], [[TcpTransport]], [[UdpTransport]], [[MessageLink]].
+Code: [NetClient](../Code/Peers/NetClient.md) (`SendAsync`, `Route`, `SendOnLinkAsync`), [ChannelTransform](../Code/Peers/ChannelTransform.md), [PeerProtocol](../Code/Peers/PeerProtocol.md) (`DataPrefix`), [LinkSecurity](../Code/Pipeline/Security/LinkSecurity.md), [PacketProtocol](../Code/Transports/PacketProtocol.md), [TcpTransport](../Code/Transports/Tcp/TcpTransport.md), [UdpTransport](../Code/Transports/Udp/UdpTransport.md), [MessageLink](../Code/Transports/MessageLink.md).
