@@ -6,7 +6,7 @@ visibility: public
 files:
   - src/NetSync/Transports/TransportSettings.cs
 depends_on: 2
-used_by: 16
+used_by: 17
 ---
 
 # TransportSettings
@@ -41,11 +41,11 @@ Tuning shared by all built-in transports. `NetClient` and `NetServer` fill it fr
 - **(root)**: [[NetConfig]]
 - **Diagnostics**: [[INetLogger]] (`INetLogger`, `NullNetLogger`)
 
-## Used by (16)
+## Used by (17)
 
 - **(root)**: [[NetConfig]]
 - **Peers**: [[NetClient]], [[NetServer]]
-- **Transports**: [[ITransportFactory]], [[MessageLink]]
+- **Transports**: [[ITransportFactory]], [[MessageLink]], [[SilenceTracker]]
 - **Transports/Tcp**: [[TcpServerTransport]], [[TcpTransport]]
 - **Transports/Udp**: [[UdpServerTransport]], [[UdpTransport]]
 - **Transports/WebSockets**: [[WebSocketClientTransport]], [[WebSocketServerTransport]], [[WebSocketTransportFactory]]
@@ -67,6 +67,7 @@ flowchart LR
   m_RelayDatagramTransports["RelayDatagramTransports"] --> m_TransportSettings
   m_RelayRoom["RelayRoom"] --> m_TransportSettings
   m_RelayStreamTransports["RelayStreamTransports"] --> m_TransportSettings
+  m_SilenceTracker["SilenceTracker"] --> m_TransportSettings
   m_SimulatedTransportFactory["SimulatedTransportFactory"] --> m_TransportSettings
   m_TcpServerTransport["TcpServerTransport"] --> m_TransportSettings
   m_TcpTransport["TcpTransport"] --> m_TransportSettings

@@ -6,7 +6,7 @@ visibility: internal
 files:
   - src/NetSync/Internal/Pooled.cs
 depends_on: 0
-used_by: 20
+used_by: 21
 ---
 
 # Pooled
@@ -38,9 +38,9 @@ The one buffer pool of the library. Rented arrays are usually longer than asked 
 
 —
 
-## Used by (20)
+## Used by (21)
 
-- **Peers**: [[ChannelTransform]], [[EventDispatcher]], [[NetClient]], [[NetServer]]
+- **Peers**: [[ChannelTransform]], [[EventDispatcher]], [[NetClient]], [[NetServer]], [[UdpHandover]]
 - **Pipeline/Reliability**: [[ReliableEndpoint]]
 - **Pipeline/Security**: [[LinkSecurity]]
 - **Pipeline/Compression**: [[Compressor]]
@@ -74,6 +74,7 @@ flowchart LR
   m_TcpServerTransport["TcpServerTransport"] --> m_Pooled
   m_TcpTransport["TcpTransport"] --> m_Pooled
   m_TransportCapabilities["TransportCapabilities"] --> m_Pooled
+  m_UdpHandover["UdpHandover"] --> m_Pooled
   m_UdpServerTransport["UdpServerTransport"] --> m_Pooled
   m_UdpTransport["UdpTransport"] --> m_Pooled
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000

@@ -42,6 +42,7 @@ A TCP connection carrying relay frames ([kind][length][body]) in both directions
 - `public async Task<(bool Ok, byte Kind, byte[] Body)> ReadOneAsync(int maxBody, CancellationToken ct)`
 - `public async Task<bool> RunReceiveLoopAsync(FrameHandler onFrame, CancellationToken ct)`
 - `public bool IsWriteStalled(int timeoutMs)`
+- `public async Task DisposeAfterFlushAsync(int timeoutMs)`
 - `public void Dispose()`
 
 ## Depends on (8)

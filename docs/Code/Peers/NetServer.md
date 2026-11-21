@@ -6,7 +6,7 @@ visibility: public
 files:
   - src/NetSync/Peers/NetServer.Handshake.cs
   - src/NetSync/Peers/NetServer.cs
-depends_on: 27
+depends_on: 28
 used_by: 2
 ---
 
@@ -50,13 +50,13 @@ used_by: 2
 - `public async Task StopAsync()`
 - `public void Dispose()`
 
-## Depends on (27)
+## Depends on (28)
 
 - **(root)**: [[NetConfig]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `TransportType`)
 - **Peers**: [[ChannelTransform]], [[ConnectionApproval]] (`ConnectionApprover`, `ConnectionDecision`, `ConnectionRequest`), [[EventDispatcher]] (`EventDispatcher`, `IDataEventSink`), [[NetConnection]], [[NetDataHandlers]] (`NetConnectionDataHandler`), [[NetListener]], [[PeerProtocol]]
 - **Pipeline/Reliability**: [[ReliabilityMode]], [[ReliableEndpoint]]
-- **Pipeline/Security**: [[CipherSuite]] (`CipherSuite`, `CipherSuites`), [[ConnectionCrypto]], [[EcdhKeyExchange]], [[LinkSecurity]]
-- **Transports**: [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `PriorityMapping`), [[IServerTransport]], [[ITransportFactory]], [[TransportCapabilities]] (`IDatagramBoundaryServerTransport`, `IPooledReceiveServerTransport`, `ITrustAwareServerTransport`), [[TransportPeer]], [[TransportSettings]]
+- **Pipeline/Security**: [[CipherSuite]] (`CipherSuite`, `CipherSuites`), [[ConnectionCrypto]], [[HandshakeKeys]], [[LinkSecurity]], [[X25519]]
+- **Transports**: [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `PriorityMapping`), [[IServerTransport]], [[ITransportFactory]], [[TransportCapabilities]] (`IDatagramBoundaryServerTransport`, `IPeerFlushingServerTransport`, `IPooledReceiveServerTransport`, `ITrustAwareServerTransport`), [[TransportPeer]], [[TransportSettings]]
 - **Transports/Udp**: [[UdpServerTransport]]
 - **Transports/Simulation**: [[SimulatedTransportFactory]] (`IWrappedServerTransport`, `SimulatedTransportFactory`)
 - **Sending**: [[SendPriority]]
@@ -78,8 +78,8 @@ flowchart LR
   m_NetServer --> m_ConnectionApproval["ConnectionApproval"]
   m_NetServer --> m_ConnectionCrypto["ConnectionCrypto"]
   m_NetServer --> m_DisconnectReason["DisconnectReason"]
-  m_NetServer --> m_EcdhKeyExchange["EcdhKeyExchange"]
   m_NetServer --> m_EventDispatcher["EventDispatcher"]
+  m_NetServer --> m_HandshakeKeys["HandshakeKeys"]
   m_NetServer --> m_INetLogger["INetLogger"]
   m_NetServer --> m_IPrioritizedTransport["IPrioritizedTransport"]
   m_NetServer --> m_IServerTransport["IServerTransport"]
@@ -100,6 +100,7 @@ flowchart LR
   m_NetServer --> m_TransportPeer["TransportPeer"]
   m_NetServer --> m_TransportSettings["TransportSettings"]
   m_NetServer --> m_UdpServerTransport["UdpServerTransport"]
+  m_NetServer --> m_X25519["X25519"]
   m_NetConnection --> m_NetServer
   m_NetMessages["NetMessages"] --> m_NetServer
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000

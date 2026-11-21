@@ -26,14 +26,16 @@ Wraps any transport factory with a `NetworkSimulation`. NetSync applies it autom
 | `SimulatedTransportFactory` | public sealed class | Wraps any transport factory with a `NetworkSimulation`. NetSync applies it automatically when `Simulation` is set; use it directly to simulate only one slot or a custom transport. |
 | `IWrappedServerTransport` | internal interface | Lets the peer layer reach the real transport behind a wrapper (trust mode, hooks). |
 | `Impairment` | internal sealed class | Decides each packet's fate: dropped, or delivered (maybe twice) at some time. |
-| `SimulationClock` | internal static class | One background thread delivering delayed packets on time. Waits coarsely and spins the last stretch: OS timers (15.6 ms on Windows) would distort small latencies. |
+| `SimulationLane` | internal sealed class | Delivers the delayed packets of one direction of one link, in due order, on its own thread — like the receive loop of a real link. One lane can't hold up another: a slow handler on one connection delays only that… |
 | ↳ `Item` | private struct |  |
+| `TimerResolution` | internal struct | 1 ms OS timer ticks while held (Windows; elsewhere sleeps are already that precise). |
 | `SimulatedClientTransport` | internal sealed class |  |
 | `SimulatedServerTransport` | internal sealed class |  |
 
 ## Extends / implements
 
 - `SimulatedTransportFactory` → `ITransportFactory` ([[ITransportFactory]])
+- `TimerResolution` → `IDisposable`
 - `SimulatedClientTransport` → `ITransport` ([[ITransport]])
 - `SimulatedServerTransport` → `IServerTransport` ([[IServerTransport]])
 - `SimulatedServerTransport` → `IWrappedServerTransport`
@@ -53,9 +55,14 @@ Wraps any transport factory with a `NetworkSimulation`. NetSync applies it autom
 - `public Impairment ForOtherDirection()`
 - `public void Apply(Action deliver)`
 
-**SimulationClock**
+**SimulationLane**
 
-- `public static void Schedule(double dueMs, Action action)`
+- `public void Schedule(double dueMs, Action action)`
+
+**TimerResolution**
+
+- `public static TimerResolution Fine()`
+- `public void Dispose()`
 
 **SimulatedClientTransport**
 

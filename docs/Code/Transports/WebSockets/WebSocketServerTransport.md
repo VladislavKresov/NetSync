@@ -5,7 +5,7 @@ kind: class
 visibility: internal
 files:
   - src/NetSync/Transports/WebSockets/WebSocketServerTransport.cs
-depends_on: 16
+depends_on: 17
 used_by: 1
 ---
 
@@ -28,6 +28,7 @@ Server side of `WebSocketTransportFactory`: a TCP listener that performs the HTT
 
 ## Extends / implements
 
+- `WebSocketServerTransport` → `IPeerFlushingServerTransport` ([[TransportCapabilities]])
 - `WebSocketServerTransport` → `IServerTransport` ([[IServerTransport]])
 - `WebSocketServerTransport` → `IPrioritizedServerTransport` ([[IPrioritizedTransport]])
 
@@ -51,11 +52,11 @@ Server side of `WebSocketTransportFactory`: a TCP listener that performs the HTT
 - `public async Task StopAsync()`
 - `public void Dispose()`
 
-## Depends on (16)
+## Depends on (17)
 
-- **Transports**: [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`), [[IServerTransport]], [[MessageLink]], [[PacketProtocol]], [[ReceiveBuffer]], [[TcpAcceptLoop]], [[TransportCapabilities]] (`IPooledReceiveServerTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
+- **Transports**: [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`), [[IServerTransport]], [[MessageLink]], [[PacketProtocol]], [[ReceiveBuffer]], [[TcpAcceptLoop]], [[TransportCapabilities]] (`IPeerFlushingServerTransport`, `IPooledReceiveServerTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
 - **Transports/WebSockets**: [[WebSocketHandshake]] (`WebSocketHandshake`, `WebSocketMessages`), [[WebSocketTransportFactory]]
-- **Sending**: [[SendPriority]]
+- **Sending**: [[SendPriority]], [[SendQueue]]
 - **Diagnostics**: [[INetLogger]]
 - **Internal**: [[NetTime]]
 
@@ -78,6 +79,7 @@ flowchart LR
   m_WebSocketServerTransport --> m_PacketProtocol["PacketProtocol"]
   m_WebSocketServerTransport --> m_ReceiveBuffer["ReceiveBuffer"]
   m_WebSocketServerTransport --> m_SendPriority["SendPriority"]
+  m_WebSocketServerTransport --> m_SendQueue["SendQueue"]
   m_WebSocketServerTransport --> m_TcpAcceptLoop["TcpAcceptLoop"]
   m_WebSocketServerTransport --> m_TransportCapabilities["TransportCapabilities"]
   m_WebSocketServerTransport --> m_TransportPeer["TransportPeer"]

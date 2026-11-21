@@ -29,6 +29,7 @@ Measures how large a UDP datagram can travel to the server unfragmented: sends "
 
 **PathMtuProbe**
 
+- `public static bool IsSupported`
 - `public static async Task<int> ProbeAsync(IPEndPoint server, int timeoutMs, CancellationToken ct)`
 
 ## Depends on (1)

@@ -30,7 +30,10 @@ Link round-trip estimator from ACK samples (RFC 6298: SRTT/RTTVAR, Karn's rule i
 
 **RttEstimator**
 
+- `public const int MaxBackoff = 64`
 - `public bool HasSample`
+- `public void ResetBackoff()`
+- `public void OnTimeout(long nowMs, int timeoutMs)`
 - `public double SmoothedRtt`
 - `public double BaseRtt`
 - `public double QueueingDelay`

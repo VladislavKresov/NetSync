@@ -6,7 +6,7 @@ visibility: public
 files:
   - src/NetSync/Pipeline/Security/CipherSuite.cs
 depends_on: 0
-used_by: 6
+used_by: 7
 ---
 
 # CipherSuite
@@ -41,10 +41,10 @@ How an encrypted connection protects packets. Negotiated in the handshake: the c
 
 —
 
-## Used by (6)
+## Used by (7)
 
 - **Peers**: [[NetClient]] (`CipherSuite`, `CipherSuites`), [[NetConnection]], [[NetServer]] (`CipherSuite`, `CipherSuites`), [[PeerProtocol]]
-- **Pipeline/Security**: [[ConnectionCrypto]], [[LinkSecurity]]
+- **Pipeline/Security**: [[ConnectionCrypto]], [[HandshakeKeys]], [[LinkSecurity]]
 
 ## Neighbourhood
 
@@ -52,6 +52,7 @@ How an encrypted connection protects packets. Negotiated in the handshake: the c
 flowchart LR
   m_CipherSuite["CipherSuite"]:::self
   m_ConnectionCrypto["ConnectionCrypto"] --> m_CipherSuite
+  m_HandshakeKeys["HandshakeKeys"] --> m_CipherSuite
   m_LinkSecurity["LinkSecurity"] --> m_CipherSuite
   m_NetClient["NetClient"] --> m_CipherSuite
   m_NetConnection["NetConnection"] --> m_CipherSuite

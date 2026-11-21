@@ -30,6 +30,7 @@ Every module of `src/NetSync` by layer and folder. Each note lists its types, me
 | [[NetListener]] | public sealed class | An extra transport a `NetServer` accepts clients on (see `AddListener`). |
 | [[NetServer]] | public sealed class |  |
 | [[PeerProtocol]] | internal static class | Peer-level messages, carried inside transport Data payloads. Handshake (plaintext): Hello… |
+| [[UdpHandover]] | internal sealed class | Moves a connection's UDP channels to TCP when UDP is lost mid-session, without losing, duplicating or reordering a message (feature… |
 
 ### Messaging — [[Module map Messaging|diagram]]
 
@@ -69,9 +70,11 @@ Every module of `src/NetSync` by layer and folder. Each note lists its types, me
 |---|---|---|
 | [[CipherSuite]] | public enum | How an encrypted connection protects packets. Negotiated in the handshake: the client offers what its runtime supports, the server picks… |
 | [[ConnectionCrypto]] | internal sealed class | Per-connection key material and the payload cipher, for one side (client or server) of one connection. Every key is per direction… |
-| [[EcdhKeyExchange]] | internal static class | Ephemeral ECDH (NIST P-256) helpers. Public keys travel as raw 64-byte X‖Y points — no ASN.1, works on both target frameworks. The… |
+| [[HandshakeKeys]] | internal static class | Session keys of protocol v4. Every keyed connection runs an ephemeral X25519 exchange, so both sides contribute fresh randomness to… |
+| [[Hkdf]] | internal static class | HKDF with HMAC-SHA256 (RFC 5869). The class library has one only on newer targets; this is the same function everywhere. |
 | [[LinkSecurity]] | internal sealed class | Authenticates every post-handshake packet on one link of an encrypted connection. Envelope: [MsgSecure:1][counter:8 BE][tag:16][inner… |
-| [[NetIdentity]] | public sealed class | A server's long-term identity: an ECDSA P-256 key pair. The server signs every ECDH handshake with it; clients that pin the public key… |
+| [[NetIdentity]] | public sealed class | A server's long-term identity: an X25519 key pair. Every handshake mixes an exchange with this key into the session keys, so only the… |
+| [[X25519]] | internal static class |  |
 
 ### Pipeline/Compression — [[Module map Pipeline Compression|diagram]]
 
@@ -95,6 +98,7 @@ Every module of `src/NetSync` by layer and folder. Each note lists its types, me
 | [[MessageLink]] | internal sealed class | NetSync packets over any reliable, message-preserving pipe (a WebSocket, a relay tunnel): [type:1][payload] per message — Ping, Pong,… |
 | [[PacketProtocol]] | internal static class | Wire format helpers. UDP datagram: [type:1][payload] TCP frame: [type:1][length:4 BE][payload] (Ping/Pong: [type:1][timestamp:8 BE])… |
 | [[ReceiveBuffer]] | internal sealed class | A connection's receive buffer that is small while traffic is small. It starts at `SmallSize` — enough for many small frames per socket… |
+| [[SilenceTracker]] | internal struct | Decides when a link has been silent long enough to call it dead. Silence is counted in keepalive rounds this process actually ran, not… |
 | [[TcpAcceptLoop]] | internal static class | The accept loop of every TCP-based listener (TCP, WebSocket, relay). One misbehaving client never stops the listener: each is served on… |
 | [[TcpConnect]] | internal static class | Outgoing TCP connects that honor cancellation on every target. |
 | [[TransportCapabilities]] | internal interface | Zero-copy delivery for a client transport: the peer layer receives the transport's own (pooled) buffer, valid only during the call. When… |
@@ -196,12 +200,12 @@ Every module of `src/NetSync` by layer and folder. Each note lists its types, me
 | Module | Used by |
 |---|---|
 | [[INetLogger]] | 26 |
-| [[Pooled]] | 20 |
-| [[NetTime]] | 18 |
-| [[TransportSettings]] | 16 |
+| [[Pooled]] | 21 |
+| [[NetTime]] | 20 |
+| [[TransportSettings]] | 17 |
 | [[SendPriority]] | 14 |
 | [[DisconnectReason]] | 14 |
 | [[PacketProtocol]] | 14 |
-| [[NetConfig]] | 12 |
+| [[NetConfig]] | 13 |
 | [[IServerTransport]] | 11 |
 | [[TransportPeer]] | 11 |

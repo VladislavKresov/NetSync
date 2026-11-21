@@ -42,7 +42,7 @@ A host's control connection to the relay: claims the room, receives the secret t
 - `public Action<uint>? PeerClosed`
 - `public void OnClosed(Action callback)`
 - `public void RemoveOnClosed(Action callback)`
-- `public static async Task<RelayHostSession> ConnectAsync(IPEndPoint relay, string room, INetLogger logger, CancellationToken ct)`
+- `public static async Task<RelayHostSession> ConnectAsync(IPEndPoint relay, string room, string? accessKey, INetLogger logger, CancellationToken ct)`
 - `public void StartReceiving()`
 - `public void Dispose()`
 

@@ -36,6 +36,8 @@ Relay (and hole-punching rendezvous) for games and apps hosted behind NAT. A hos
 **NetRelayServer**
 
 - `public int MaxRooms`
+- `public string? AccessKey`
+- `public int CloseFlushTimeoutMs`
 - `public int MaxClientsPerRoom`
 - `public bool AllowDirect`
 - `public int Port`

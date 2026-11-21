@@ -32,6 +32,7 @@ Socket setup shared by the UDP transports.
 - `public const int ReceiveBufferSize = 64 * 1024`
 - `public static Socket CreateClient(AddressFamily family)`
 - `public static Socket BindServer(int port)`
+- `public static void Close(Socket socket)`
 - `public static bool IsTransient(SocketError error)`
 
 ## Depends on (0)

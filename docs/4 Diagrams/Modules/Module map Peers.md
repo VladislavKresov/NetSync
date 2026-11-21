@@ -21,6 +21,7 @@ flowchart LR
     m_NetListener["NetListener"]:::api
     m_NetServer["NetServer"]:::api
     m_PeerProtocol["PeerProtocol"]:::api
+    m_UdpHandover["UdpHandover"]:::api
   end
   m_NetConfig["NetConfig<br/><small>(root)</small>"]:::api
   m_NetMessages["NetMessages<br/><small>Messaging</small>"]:::api
@@ -29,9 +30,10 @@ flowchart LR
   m_ReliableEndpoint["ReliableEndpoint<br/><small>Pipeline/Reliability</small>"]:::session
   m_CipherSuite["CipherSuite<br/><small>Pipeline/Security</small>"]:::session
   m_ConnectionCrypto["ConnectionCrypto<br/><small>Pipeline/Security</small>"]:::session
-  m_EcdhKeyExchange["EcdhKeyExchange<br/><small>Pipeline/Security</small>"]:::session
+  m_HandshakeKeys["HandshakeKeys<br/><small>Pipeline/Security</small>"]:::session
   m_LinkSecurity["LinkSecurity<br/><small>Pipeline/Security</small>"]:::session
   m_NetIdentity["NetIdentity<br/><small>Pipeline/Security</small>"]:::session
+  m_X25519["X25519<br/><small>Pipeline/Security</small>"]:::session
   m_Compressor["Compressor<br/><small>Pipeline/Compression</small>"]:::session
   m_DisconnectReason["DisconnectReason<br/><small>Transports</small>"]:::transports
   m_IPrioritizedTransport["IPrioritizedTransport<br/><small>Transports</small>"]:::transports
@@ -58,8 +60,8 @@ flowchart LR
   m_NetClient --> m_ConnectionApproval
   m_NetClient -.-> m_ConnectionCrypto
   m_NetClient -.-> m_DisconnectReason
-  m_NetClient -.-> m_EcdhKeyExchange
   m_NetClient --> m_EventDispatcher
+  m_NetClient -.-> m_HandshakeKeys
   m_NetClient -.-> m_IPrioritizedTransport
   m_NetClient -.-> m_ITransport
   m_NetClient -.-> m_LinkSecurity
@@ -73,7 +75,9 @@ flowchart LR
   m_NetClient -.-> m_SendPriority
   m_NetClient -.-> m_TransportCapabilities
   m_NetClient -.-> m_TransportSettings
+  m_NetClient --> m_UdpHandover
   m_NetClient -.-> m_UdpTransport
+  m_NetClient -.-> m_X25519
   m_NetMessages -.-> m_NetClient
   m_NetStreams -.-> m_NetClient
   m_NetConnection -.-> m_CipherSuite
@@ -83,6 +87,7 @@ flowchart LR
   m_NetConnection --> m_NetServer
   m_NetConnection -.-> m_ReliableEndpoint
   m_NetConnection -.-> m_TransportPeer
+  m_NetConnection --> m_UdpHandover
   m_NetMessages -.-> m_NetConnection
   m_NetStreams -.-> m_NetConnection
   m_NetDataHandlers --> m_NetConnection
@@ -93,8 +98,8 @@ flowchart LR
   m_NetServer --> m_ConnectionApproval
   m_NetServer -.-> m_ConnectionCrypto
   m_NetServer -.-> m_DisconnectReason
-  m_NetServer -.-> m_EcdhKeyExchange
   m_NetServer --> m_EventDispatcher
+  m_NetServer -.-> m_HandshakeKeys
   m_NetServer -.-> m_IPrioritizedTransport
   m_NetServer -.-> m_IServerTransport
   m_NetServer -.-> m_ITransportFactory
@@ -112,12 +117,15 @@ flowchart LR
   m_NetServer -.-> m_TransportPeer
   m_NetServer -.-> m_TransportSettings
   m_NetServer -.-> m_UdpServerTransport
+  m_NetServer -.-> m_X25519
   m_NetMessages -.-> m_NetServer
   m_PeerProtocol -.-> m_CipherSuite
   m_PeerProtocol --> m_ConnectionApproval
   m_PeerProtocol -.-> m_NetConfig
   m_LinkSecurity -.-> m_PeerProtocol
   m_ReliableEndpoint -.-> m_PeerProtocol
+  m_UdpHandover -.-> m_NetConfig
+  m_UdpHandover -.-> m_ReliableEndpoint
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
   classDef transports fill:#a8c8f5,stroke:#555,color:#000
@@ -133,9 +141,10 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 | [[ClockSync]] | Estimates the offset between this client's clock and the server's, NTP-style: each round trip gives offset = serverTime + rtt/2 − localReceiveTime, which is… | 0 | 1 |
 | [[ConnectionApproval]] | A client asking to join (see `ConnectionApprover`). The handshake is complete — keys established, server identity proven — but the connection isn't open… | 2 | 3 |
 | [[EventDispatcher]] | Routes events either straight through (Immediate) or into a queue drained by PollEvents (Polled). Handler exceptions are logged, never propagated into… | 3 | 2 |
-| [[NetClient]] |  | 26 | 2 |
-| [[NetConnection]] | A connected client as seen by `NetServer`: one logical connection spanning one transport link per configured transport type. | 8 | 5 |
+| [[NetClient]] |  | 28 | 2 |
+| [[NetConnection]] | A connected client as seen by `NetServer`: one logical connection spanning one transport link per configured transport type. | 9 | 5 |
 | [[NetDataHandlers]] | Zero-copy data handler for `MessageReceived`. `data` points into a pooled buffer and is valid only until the handler returns: parse it, pass it to SendAsync… | 1 | 2 |
 | [[NetListener]] | An extra transport a `NetServer` accepts clients on (see `AddListener`). | 2 | 1 |
-| [[NetServer]] |  | 27 | 2 |
+| [[NetServer]] |  | 28 | 2 |
 | [[PeerProtocol]] | Peer-level messages, carried inside transport Data payloads. Handshake (plaintext): Hello… | 3 | 4 |
+| [[UdpHandover]] | Moves a connection's UDP channels to TCP when UDP is lost mid-session, without losing, duplicating or reordering a message (feature `FeatureLiveDegrade`).… | 4 | 2 |

@@ -5,7 +5,7 @@ kind: class
 visibility: public
 files:
   - src/NetSync/Transports/TransportPeer.cs
-depends_on: 2
+depends_on: 3
 used_by: 11
 ---
 
@@ -32,6 +32,7 @@ A remote peer as seen by a server transport. Transport-specific state stays insi
 - `public long Id`
 - `public IPEndPoint EndPoint`
 - `public int PingMs`
+- `internal SilenceTracker Silence`
 - `internal object? TransportState`
 - `internal object? SendState`
 - `internal object? PeerLayerState`
@@ -46,9 +47,9 @@ A remote peer as seen by a server transport. Transport-specific state stays insi
 - `internal long LastSeenMs`
 - `public override string ToString()`
 
-## Depends on (2)
+## Depends on (3)
 
-- **Transports**: [[IServerTransport]]
+- **Transports**: [[IServerTransport]], [[SilenceTracker]]
 - **Internal**: [[NetTime]]
 
 ## Used by (11)
@@ -68,6 +69,7 @@ flowchart LR
   m_TransportPeer["TransportPeer"]:::self
   m_TransportPeer --> m_IServerTransport["IServerTransport"]
   m_TransportPeer --> m_NetTime["NetTime"]
+  m_TransportPeer --> m_SilenceTracker["SilenceTracker"]
   m_IPrioritizedTransport["IPrioritizedTransport"] --> m_TransportPeer
   m_IServerTransport --> m_TransportPeer
   m_NetConnection["NetConnection"] --> m_TransportPeer

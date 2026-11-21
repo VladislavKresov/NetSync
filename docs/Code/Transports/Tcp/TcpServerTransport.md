@@ -29,6 +29,7 @@ Server-side TCP transport: accepts clients, frames packets, pings peers and drop
 ## Extends / implements
 
 - `TcpServerTransport` → `IServerTransport` ([[IServerTransport]])
+- `TcpServerTransport` → `IPeerFlushingServerTransport` ([[TransportCapabilities]])
 - `TcpServerTransport` → `IPrioritizedServerTransport` ([[IPrioritizedTransport]])
 - `TcpServerTransport` → `IPooledReceiveServerTransport` ([[TransportCapabilities]])
 - `TcpServerTransport` → `ITrustAwareServerTransport` ([[TransportCapabilities]])
@@ -56,7 +57,7 @@ Server-side TCP transport: accepts clients, frames packets, pings peers and drop
 
 ## Depends on (19)
 
-- **Transports**: [[BulkSender]], [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `PriorityMapping`), [[IServerTransport]], [[PacketProtocol]], [[TcpAcceptLoop]], [[TransportCapabilities]] (`IPooledReceiveServerTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
+- **Transports**: [[BulkSender]], [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `PriorityMapping`), [[IServerTransport]], [[PacketProtocol]], [[TcpAcceptLoop]], [[TransportCapabilities]] (`IPeerFlushingServerTransport`, `IPooledReceiveServerTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
 - **Transports/Tcp**: [[TcpFrameReader]], [[TcpTransport]]
 - **Sending**: [[SendPriority]], [[SendQueue]]
 - **Pipeline/Fragmentation**: [[FragmentBuffer]], [[PacketFragmenter]]

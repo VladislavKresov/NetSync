@@ -30,6 +30,7 @@ flowchart LR
   m_TransportPeer["TransportPeer<br/><small>Transports</small>"]:::transports
   m_TransportSettings["TransportSettings<br/><small>Transports</small>"]:::transports
   m_SendPriority["SendPriority<br/><small>Sending</small>"]:::infrastructure
+  m_SendQueue["SendQueue<br/><small>Sending</small>"]:::infrastructure
   m_WebSocketClientTransport -.-> m_DisconnectReason
   m_WebSocketClientTransport -.-> m_IPrioritizedTransport
   m_WebSocketClientTransport -.-> m_ITransport
@@ -49,6 +50,7 @@ flowchart LR
   m_WebSocketServerTransport -.-> m_PacketProtocol
   m_WebSocketServerTransport -.-> m_ReceiveBuffer
   m_WebSocketServerTransport -.-> m_SendPriority
+  m_WebSocketServerTransport -.-> m_SendQueue
   m_WebSocketServerTransport -.-> m_TcpAcceptLoop
   m_WebSocketServerTransport -.-> m_TransportCapabilities
   m_WebSocketServerTransport -.-> m_TransportPeer
@@ -74,5 +76,5 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 |---|---|---|---|
 | [[WebSocketClientTransport]] | Client side of `WebSocketTransportFactory`: NetSync packets as WebSocket messages (`MessageLink`), with ping/pong keepalive and a write watchdog. | 12 | 1 |
 | [[WebSocketHandshake]] | Server side of the RFC 6455 opening handshake, on a raw (or TLS) stream. Deliberately strict and small: bounded request size, GET on the configured path,… | 1 | 2 |
-| [[WebSocketServerTransport]] | Server side of `WebSocketTransportFactory`: a TCP listener that performs the HTTP upgrade itself (optionally inside TLS), then speaks the same packets as… | 16 | 1 |
+| [[WebSocketServerTransport]] | Server side of `WebSocketTransportFactory`: a TCP listener that performs the HTTP upgrade itself (optionally inside TLS), then speaks the same packets as… | 17 | 1 |
 | [[WebSocketTransportFactory]] | WebSocket transport for the `Tcp` slot — the way browsers (WebAssembly, Blazor) and networks that only let HTTP(S) through reach a NetSync server. The whole… | 6 | 2 |

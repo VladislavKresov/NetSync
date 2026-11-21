@@ -21,17 +21,16 @@ flowchart LR
   m_NetListener["NetListener<br/><small>Peers</small>"]:::api
   m_NetServer["NetServer<br/><small>Peers</small>"]:::api
   m_PeerProtocol["PeerProtocol<br/><small>Peers</small>"]:::api
+  m_UdpHandover["UdpHandover<br/><small>Peers</small>"]:::api
   m_ReliabilityMode["ReliabilityMode<br/><small>Pipeline/Reliability</small>"]:::session
   m_ReliableEndpoint["ReliableEndpoint<br/><small>Pipeline/Reliability</small>"]:::session
   m_ConnectionCrypto["ConnectionCrypto<br/><small>Pipeline/Security</small>"]:::session
-  m_EcdhKeyExchange["EcdhKeyExchange<br/><small>Pipeline/Security</small>"]:::session
   m_NetIdentity["NetIdentity<br/><small>Pipeline/Security</small>"]:::session
   m_ITransportFactory["ITransportFactory<br/><small>Transports</small>"]:::transports
   m_TransportSettings["TransportSettings<br/><small>Transports</small>"]:::transports
   m_NetworkSimulation["NetworkSimulation<br/><small>Transports/Simulation</small>"]:::transports
   m_SimulatedTransportFactory["SimulatedTransportFactory<br/><small>Transports/Simulation</small>"]:::transports
   m_FragmentBuffer["FragmentBuffer<br/><small>Pipeline/Fragmentation</small>"]:::infrastructure
-  m_NetConfig -.-> m_EcdhKeyExchange
   m_NetConfig -.-> m_ITransportFactory
   m_NetConfig -.-> m_NetIdentity
   m_NetConfig -.-> m_NetworkSimulation
@@ -50,6 +49,7 @@ flowchart LR
   m_PeerProtocol -.-> m_NetConfig
   m_ReliableEndpoint -.-> m_NetConfig
   m_TransportSettings -.-> m_NetConfig
+  m_UdpHandover -.-> m_NetConfig
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
   classDef transports fill:#a8c8f5,stroke:#555,color:#000
@@ -61,4 +61,4 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 
 | Module | Summary | Uses | Used by |
 |---|---|---|---|
-| [[NetConfig]] | Shared configuration for `NetClient` and `NetServer`. Client and server must agree on the channel table (same ids, same transports). When `Channels` is left… | 8 | 12 |
+| [[NetConfig]] | Shared configuration for `NetClient` and `NetServer`. Client and server must agree on the channel table (same ids, same transports). When `Channels` is left… | 7 | 13 |

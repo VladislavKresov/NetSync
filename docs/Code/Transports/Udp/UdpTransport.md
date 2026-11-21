@@ -5,7 +5,7 @@ kind: class
 visibility: public
 files:
   - src/NetSync/Transports/Udp/UdpTransport.cs
-depends_on: 11
+depends_on: 12
 used_by: 3
 ---
 
@@ -53,9 +53,9 @@ Client-side UDP transport. Connectionless at the socket level; liveness is track
 - `public void Disconnect()`
 - `public void Dispose()`
 
-## Depends on (11)
+## Depends on (12)
 
-- **Transports**: [[DisconnectReason]], [[ITransport]], [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[TransportCapabilities]] (`IDatagramBoundaryTransport`, `IPooledReceiveTransport`, `ReceivedPacket`), [[TransportSettings]]
+- **Transports**: [[DisconnectReason]], [[ITransport]], [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[SilenceTracker]], [[TransportCapabilities]] (`IDatagramBoundaryTransport`, `IPooledReceiveTransport`, `ReceivedPacket`), [[TransportSettings]]
 - **Transports/Udp**: [[DatagramBatcher]], [[UdpSockets]]
 - **Diagnostics**: [[INetLogger]], [[NetMetrics]]
 - **Internal**: [[NetTime]], [[Pooled]]
@@ -79,6 +79,7 @@ flowchart LR
   m_UdpTransport --> m_NetTime["NetTime"]
   m_UdpTransport --> m_PacketProtocol["PacketProtocol"]
   m_UdpTransport --> m_Pooled["Pooled"]
+  m_UdpTransport --> m_SilenceTracker["SilenceTracker"]
   m_UdpTransport --> m_TransportCapabilities["TransportCapabilities"]
   m_UdpTransport --> m_TransportSettings["TransportSettings"]
   m_UdpTransport --> m_UdpSockets["UdpSockets"]

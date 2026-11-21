@@ -5,7 +5,7 @@ kind: class
 visibility: public
 files:
   - src/NetSync/Peers/NetConnection.cs
-depends_on: 8
+depends_on: 9
 used_by: 5
 ---
 
@@ -45,6 +45,8 @@ A connected client as seen by `NetServer`: one logical connection spanning one t
 - `internal int AuthRejectSent`
 - `internal int Announced`
 - `internal int Degraded`
+- `internal uint Features`
+- `internal readonly UdpHandover Handover = new UdpHandover()`
 - `internal int HoldsSlot`
 - `public bool IsDegraded`
 - `internal int Closed`
@@ -62,10 +64,10 @@ A connected client as seen by `NetServer`: one logical connection spanning one t
 - `public Task DisconnectAsync()`
 - `public override string ToString()`
 
-## Depends on (8)
+## Depends on (9)
 
 - **(root)**: [[NetConfig]] (`TransportType`)
-- **Peers**: [[NetServer]]
+- **Peers**: [[NetServer]], [[UdpHandover]]
 - **Pipeline/Reliability**: [[ReliableEndpoint]]
 - **Pipeline/Security**: [[CipherSuite]], [[ConnectionCrypto]], [[LinkSecurity]]
 - **Transports**: [[TransportPeer]]
@@ -90,6 +92,7 @@ flowchart LR
   m_NetConnection --> m_NetStatistics["NetStatistics"]
   m_NetConnection --> m_ReliableEndpoint["ReliableEndpoint"]
   m_NetConnection --> m_TransportPeer["TransportPeer"]
+  m_NetConnection --> m_UdpHandover["UdpHandover"]
   m_ConnectionApproval["ConnectionApproval"] --> m_NetConnection
   m_NetDataHandlers["NetDataHandlers"] --> m_NetConnection
   m_NetMessages["NetMessages"] --> m_NetConnection

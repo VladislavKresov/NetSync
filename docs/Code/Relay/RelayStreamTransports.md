@@ -5,7 +5,7 @@ kind: class
 visibility: internal
 files:
   - src/NetSync/Relay/RelayStreamTransports.cs
-depends_on: 17
+depends_on: 18
 used_by: 1
 ---
 
@@ -34,6 +34,7 @@ Client stream slot through a relay: one TCP connection, NetSync packets as Data 
 - `RelayStreamClientTransport` → `IPrioritizedTransport` ([[IPrioritizedTransport]])
 - `RelayStreamClientTransport` → `IPooledReceiveTransport` ([[TransportCapabilities]])
 - `RelayStreamHostTransport` → `IServerTransport` ([[IServerTransport]])
+- `RelayStreamHostTransport` → `IPeerFlushingServerTransport` ([[TransportCapabilities]])
 - `RelayStreamHostTransport` → `IPrioritizedServerTransport` ([[IPrioritizedTransport]])
 
 ## Members
@@ -72,11 +73,11 @@ Client stream slot through a relay: one TCP connection, NetSync packets as Data 
 - `public Task StopAsync()`
 - `public void Dispose()`
 
-## Depends on (17)
+## Depends on (18)
 
-- **Transports**: [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `IPrioritizedTransport`), [[IServerTransport]], [[ITransport]], [[MessageLink]], [[PacketProtocol]], [[TcpConnect]], [[TransportCapabilities]] (`IPooledReceiveServerTransport`, `IPooledReceiveTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
+- **Transports**: [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedServerTransport`, `IPrioritizedTransport`), [[IServerTransport]], [[ITransport]], [[MessageLink]], [[PacketProtocol]], [[TcpConnect]], [[TransportCapabilities]] (`IPeerFlushingServerTransport`, `IPooledReceiveServerTransport`, `IPooledReceiveTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
 - **Relay**: [[FramedConnection]], [[RelayHostSession]], [[RelayProtocol]], [[RelayRoom]]
-- **Sending**: [[SendPriority]]
+- **Sending**: [[SendPriority]], [[SendQueue]]
 - **Diagnostics**: [[INetLogger]]
 - **Internal**: [[NetTime]]
 
@@ -102,6 +103,7 @@ flowchart LR
   m_RelayStreamTransports --> m_RelayProtocol["RelayProtocol"]
   m_RelayStreamTransports --> m_RelayRoom["RelayRoom"]
   m_RelayStreamTransports --> m_SendPriority["SendPriority"]
+  m_RelayStreamTransports --> m_SendQueue["SendQueue"]
   m_RelayStreamTransports --> m_TcpConnect["TcpConnect"]
   m_RelayStreamTransports --> m_TransportCapabilities["TransportCapabilities"]
   m_RelayStreamTransports --> m_TransportPeer["TransportPeer"]

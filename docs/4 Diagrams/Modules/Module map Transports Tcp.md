@@ -25,6 +25,7 @@ flowchart LR
   m_MessageLink["MessageLink<br/><small>Transports</small>"]:::transports
   m_PacketProtocol["PacketProtocol<br/><small>Transports</small>"]:::transports
   m_ReceiveBuffer["ReceiveBuffer<br/><small>Transports</small>"]:::transports
+  m_SilenceTracker["SilenceTracker<br/><small>Transports</small>"]:::transports
   m_TcpAcceptLoop["TcpAcceptLoop<br/><small>Transports</small>"]:::transports
   m_TcpConnect["TcpConnect<br/><small>Transports</small>"]:::transports
   m_TransportCapabilities["TransportCapabilities<br/><small>Transports</small>"]:::transports
@@ -63,6 +64,7 @@ flowchart LR
   m_TcpTransport -.-> m_PacketProtocol
   m_TcpTransport -.-> m_SendPriority
   m_TcpTransport -.-> m_SendQueue
+  m_TcpTransport -.-> m_SilenceTracker
   m_TcpTransport -.-> m_TcpConnect
   m_TcpTransport --> m_TcpFrameReader
   m_TcpTransport -.-> m_TransportCapabilities
@@ -83,4 +85,4 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 |---|---|---|---|
 | [[TcpFrameReader]] | Incremental TCP frame parser over a `ReceiveBuffer`. A single socket read usually brings in many small frames; they are parsed and delivered straight from… | 2 | 2 |
 | [[TcpServerTransport]] | Server-side TCP transport: accepts clients, frames packets, pings peers and drops the ones that stop answering. Every peer gets its own priority… | 19 | 1 |
-| [[TcpTransport]] | Client-side TCP transport. Frames packets, keeps the link alive with ping/pong, fragments large payloads so bulk data never blocks small real-time packets.… | 17 | 4 |
+| [[TcpTransport]] | Client-side TCP transport. Frames packets, keeps the link alive with ping/pong, fragments large payloads so bulk data never blocks small real-time packets.… | 18 | 4 |

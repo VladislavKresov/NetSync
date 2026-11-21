@@ -20,6 +20,7 @@ flowchart LR
   m_EventDispatcher["EventDispatcher<br/><small>Peers</small>"]:::api
   m_NetClient["NetClient<br/><small>Peers</small>"]:::api
   m_NetServer["NetServer<br/><small>Peers</small>"]:::api
+  m_UdpHandover["UdpHandover<br/><small>Peers</small>"]:::api
   m_ReliabilityClock["ReliabilityClock<br/><small>Pipeline/Reliability</small>"]:::session
   m_ReliableEndpoint["ReliableEndpoint<br/><small>Pipeline/Reliability</small>"]:::session
   m_LinkSecurity["LinkSecurity<br/><small>Pipeline/Security</small>"]:::session
@@ -45,6 +46,7 @@ flowchart LR
   m_INetLogger["INetLogger<br/><small>Diagnostics</small>"]:::foundation
   m_DatagramBatcher -.-> m_AsyncSignal
   m_SendQueue -.-> m_AsyncSignal
+  m_DatagramBatcher -.-> m_NetTime
   m_FragmentBuffer -.-> m_NetTime
   m_FramedConnection -.-> m_NetTime
   m_MessageLink -.-> m_NetTime
@@ -60,6 +62,7 @@ flowchart LR
   m_TcpServerTransport -.-> m_NetTime
   m_TcpTransport -.-> m_NetTime
   m_TransportPeer -.-> m_NetTime
+  m_UdpHandover -.-> m_NetTime
   m_UdpServerTransport -.-> m_NetTime
   m_UdpTransport -.-> m_NetTime
   m_WebSocketServerTransport -.-> m_NetTime
@@ -81,6 +84,7 @@ flowchart LR
   m_TcpServerTransport -.-> m_Pooled
   m_TcpTransport -.-> m_Pooled
   m_TransportCapabilities -.-> m_Pooled
+  m_UdpHandover -.-> m_Pooled
   m_UdpServerTransport -.-> m_Pooled
   m_UdpTransport -.-> m_Pooled
   m_TaskExtensions -.-> m_INetLogger
@@ -96,6 +100,6 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 | Module | Summary | Uses | Used by |
 |---|---|---|---|
 | [[AsyncSignal]] | Allocation-free auto-reset signal for exactly one async waiter. A Set() that arrives while nobody waits is remembered (one pending wake-up); a Set() during… | 0 | 2 |
-| [[NetTime]] | Monotonic clock. DateTime.UtcNow is not monotonic (NTP jumps, DST issues on some platforms) and must not be used for RTT or timeout measurement. | 0 | 18 |
-| [[Pooled]] | The one buffer pool of the library. Rented arrays are usually longer than asked for — always carry the length alongside, never use array.Length. | 0 | 20 |
+| [[NetTime]] | Monotonic clock. DateTime.UtcNow is not monotonic (NTP jumps, DST issues on some platforms) and must not be used for RTT or timeout measurement. | 0 | 20 |
+| [[Pooled]] | The one buffer pool of the library. Rented arrays are usually longer than asked for — always carry the length alongside, never use array.Length. | 0 | 21 |
 | [[TaskExtensions]] | Fire-and-forget helpers that never leave a failure unobserved. | 1 | 0 |

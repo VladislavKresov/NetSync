@@ -14,8 +14,8 @@ Towards 1.0, on protocol v4 ([[Handshake v4]]):
 
 - [x] Protocol v4: key exchange that works on every runtime, extension points, application id, relay protocol version.
 - [x] Verified in Unity 2021.3 (Mono) and 6000.2 (IL2CPP) on Windows.
-- [ ] Behaviour fixes: reliable data never dropped silently when the event queue overflows; one backpressure rule for sends; UDP loss mid-session degrades to the stream link instead of closing.
-- [ ] Tests on .NET 8 and .NET 10, CI on Windows, Linux and macOS; public API checked against the last release.
+- [x] Behaviour fixes: reliable data never dropped silently when the event queue overflows; one backpressure rule for sends; UDP loss mid-session degrades to the stream link instead of closing; ordered channels keep send order under backpressure.
+- [x] Tests on .NET 8 and .NET 10, CI on Windows, Linux and macOS; public API checked against 2.0.0-rc.5 on every build.
 - [ ] Verify on Android and iOS.
 
 After 1.0, without breaking v4:

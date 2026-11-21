@@ -44,8 +44,10 @@ flowchart LR
   m_BulkSender -.-> m_SendQueue
   m_FramedConnection -.-> m_SendQueue
   m_MessageLink -.-> m_SendQueue
+  m_RelayStreamTransports -.-> m_SendQueue
   m_TcpServerTransport -.-> m_SendQueue
   m_TcpTransport -.-> m_SendQueue
+  m_WebSocketServerTransport -.-> m_SendQueue
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
   classDef transports fill:#a8c8f5,stroke:#555,color:#000
@@ -58,4 +60,4 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 | Module | Summary | Uses | Used by |
 |---|---|---|---|
 | [[SendPriority]] |  | 0 | 14 |
-| [[SendQueue]] | Priority send queue with a dedicated drain loop. - Wakes exactly when work arrives, without allocating (`AsyncSignal`). After an idle period the first write… | 5 | 5 |
+| [[SendQueue]] | Priority send queue with a dedicated drain loop. - Wakes exactly when work arrives, without allocating (`AsyncSignal`). After an idle period the first write… | 5 | 7 |

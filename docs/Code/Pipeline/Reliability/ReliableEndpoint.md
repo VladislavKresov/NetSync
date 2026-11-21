@@ -6,7 +6,7 @@ visibility: internal
 files:
   - src/NetSync/Pipeline/Reliability/ReliableEndpoint.cs
 depends_on: 12
-used_by: 4
+used_by: 5
 ---
 
 # ReliableEndpoint
@@ -63,6 +63,8 @@ Reliability engine for one unreliable datagram link (ENet-style ARQ with TCP-gra
 - `public void FlushAcks()`
 - `public void HandleAck(byte[] buffer, int offset, int count)`
 - `internal void Tick(long now)`
+- `public bool IsIdle`
+- `public void ResendAllOnNewPath(long now)`
 - `public void Dispose()`
 
 ## Depends on (12)
@@ -76,9 +78,9 @@ Reliability engine for one unreliable datagram link (ENet-style ARQ with TCP-gra
 - **Diagnostics**: [[INetLogger]]
 - **Internal**: [[NetTime]], [[Pooled]]
 
-## Used by (4)
+## Used by (5)
 
-- **Peers**: [[NetClient]], [[NetConnection]], [[NetServer]]
+- **Peers**: [[NetClient]], [[NetConnection]], [[NetServer]], [[UdpHandover]]
 - **Pipeline/Reliability**: [[ReliabilityClock]]
 
 ## Neighbourhood
@@ -102,5 +104,6 @@ flowchart LR
   m_NetConnection["NetConnection"] --> m_ReliableEndpoint
   m_NetServer["NetServer"] --> m_ReliableEndpoint
   m_ReliabilityClock --> m_ReliableEndpoint
+  m_UdpHandover["UdpHandover"] --> m_ReliableEndpoint
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000
 ```

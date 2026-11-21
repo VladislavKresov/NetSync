@@ -6,7 +6,7 @@ visibility: internal
 files:
   - src/NetSync/Sending/SendQueue.cs
 depends_on: 5
-used_by: 5
+used_by: 7
 ---
 
 # SendQueue
@@ -25,6 +25,7 @@ Priority send queue with a dedicated drain loop. - Wakes exactly when work arriv
 |---|---|---|
 | `SendQueue` | internal sealed class | Priority send queue with a dedicated drain loop. - Wakes exactly when work arrives, without allocating (`AsyncSignal`). After an idle period the first write happens on the enqueuing thread itself. - Optional… |
 | ↳ `Job` | private struct |  |
+| ↳ `BatchBuffers` | private static class | Coalescing buffers, shared by all queues. Not the shared array pool: that one keeps an array per thread, and a drain loop rents on one thread-pool thread and returns on another, so batches get stranded in thread… |
 
 ## Extends / implements
 
@@ -42,6 +43,8 @@ Priority send queue with a dedicated drain loop. - Wakes exactly when work arriv
 - `public void Start()`
 - `public bool TryEnqueue(byte[] buffer, int length, bool pooled, SendPriority priority)`
 - `public async ValueTask EnqueueAsync(byte[] buffer, int length, bool pooled, SendPriority priority, CancellationToken ct)`
+- `public ValueTask EnqueueOrWaitAsync(byte[] buffer, int length, SendPriority priority, CancellationToken ct)`
+- `public async Task<bool> WaitUntilIdleAsync(int timeoutMs)`
 - `public void Dispose()`
 
 ## Depends on (5)
@@ -50,11 +53,12 @@ Priority send queue with a dedicated drain loop. - Wakes exactly when work arriv
 - **Diagnostics**: [[INetLogger]]
 - **Internal**: [[AsyncSignal]], [[NetTime]], [[Pooled]]
 
-## Used by (5)
+## Used by (7)
 
 - **Transports**: [[BulkSender]], [[MessageLink]]
 - **Transports/Tcp**: [[TcpServerTransport]], [[TcpTransport]]
-- **Relay**: [[FramedConnection]]
+- **Transports/WebSockets**: [[WebSocketServerTransport]]
+- **Relay**: [[FramedConnection]], [[RelayStreamTransports]]
 
 ## Neighbourhood
 
@@ -69,7 +73,9 @@ flowchart LR
   m_BulkSender["BulkSender"] --> m_SendQueue
   m_FramedConnection["FramedConnection"] --> m_SendQueue
   m_MessageLink["MessageLink"] --> m_SendQueue
+  m_RelayStreamTransports["RelayStreamTransports"] --> m_SendQueue
   m_TcpServerTransport["TcpServerTransport"] --> m_SendQueue
   m_TcpTransport["TcpTransport"] --> m_SendQueue
+  m_WebSocketServerTransport["WebSocketServerTransport"] --> m_SendQueue
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000
 ```

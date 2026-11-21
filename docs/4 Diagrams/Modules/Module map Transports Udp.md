@@ -26,6 +26,7 @@ flowchart LR
   m_ITransport["ITransport<br/><small>Transports</small>"]:::transports
   m_ITransportFactory["ITransportFactory<br/><small>Transports</small>"]:::transports
   m_PacketProtocol["PacketProtocol<br/><small>Transports</small>"]:::transports
+  m_SilenceTracker["SilenceTracker<br/><small>Transports</small>"]:::transports
   m_TransportCapabilities["TransportCapabilities<br/><small>Transports</small>"]:::transports
   m_TransportPeer["TransportPeer<br/><small>Transports</small>"]:::transports
   m_TransportSettings["TransportSettings<br/><small>Transports</small>"]:::transports
@@ -57,6 +58,7 @@ flowchart LR
   m_UdpTransport -.-> m_DisconnectReason
   m_UdpTransport -.-> m_ITransport
   m_UdpTransport -.-> m_PacketProtocol
+  m_UdpTransport -.-> m_SilenceTracker
   m_UdpTransport -.-> m_TransportCapabilities
   m_UdpTransport -.-> m_TransportSettings
   m_UdpTransport --> m_UdpSockets
@@ -73,9 +75,9 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 
 | Module | Summary | Uses | Used by |
 |---|---|---|---|
-| [[DatagramBatcher]] | Packs small UDP packets into shared datagrams — one socket call carries many messages. Callers only copy their packet into the destination's open batch; one… | 4 | 2 |
+| [[DatagramBatcher]] | Packs small UDP packets into shared datagrams — one socket call carries many messages. Callers only copy their packet into the destination's open batch; one… | 5 | 2 |
 | [[EndPointCache]] | Allocation-free source addresses for unconnected UDP receives (net8.0): receive into `Address`, then `Resolve` returns the same `IPEndPoint` instance for a… | 0 | 2 |
 | [[PathMtuProbe]] | Measures how large a UDP datagram can travel to the server unfragmented: sends "don't fragment" probes of decreasing size from a side socket and takes the… | 1 | 1 |
 | [[UdpServerTransport]] | Server-side UDP transport. Tracks peers by source address, pings them actively and expires the silent ones. One socket, one receive thread, one reused… | 13 | 3 |
 | [[UdpSockets]] | Socket setup shared by the UDP transports. | 0 | 5 |
-| [[UdpTransport]] | Client-side UDP transport. Connectionless at the socket level; liveness is tracked via ping/pong. The reliability layer adds retransmission, ordering and… | 11 | 3 |
+| [[UdpTransport]] | Client-side UDP transport. Connectionless at the socket level; liveness is tracked via ping/pong. The reliability layer adds retransmission, ordering and… | 12 | 3 |

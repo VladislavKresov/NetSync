@@ -5,7 +5,7 @@ kind: class
 visibility: internal
 files:
   - src/NetSync/Relay/RelayDatagramTransports.cs
-depends_on: 19
+depends_on: 20
 used_by: 1
 ---
 
@@ -72,10 +72,10 @@ Client datagram slot through a relay, with UDP hole punching. Registers with the
 - `public Task StopAsync()`
 - `public void Dispose()`
 
-## Depends on (19)
+## Depends on (20)
 
 - **Pipeline/Security**: [[ConnectionCrypto]]
-- **Transports**: [[DisconnectReason]], [[DualStack]], [[IServerTransport]], [[ITransport]], [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[TransportCapabilities]] (`IPooledReceiveServerTransport`, `IPooledReceiveTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
+- **Transports**: [[DisconnectReason]], [[DualStack]], [[IServerTransport]], [[ITransport]], [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[SilenceTracker]], [[TransportCapabilities]] (`IPooledReceiveServerTransport`, `IPooledReceiveTransport`, `ITrustAwareServerTransport`, `ReceivedPacket`), [[TransportPeer]], [[TransportSettings]]
 - **Transports/Udp**: [[UdpServerTransport]], [[UdpSockets]]
 - **Relay**: [[DatagramSocket]] (`IDatagramSocket`), [[RelayHostSession]], [[RelayProtocol]], [[RelayRoom]]
 - **Diagnostics**: [[INetLogger]], [[NetMetrics]]
@@ -104,6 +104,7 @@ flowchart LR
   m_RelayDatagramTransports --> m_RelayHostSession["RelayHostSession"]
   m_RelayDatagramTransports --> m_RelayProtocol["RelayProtocol"]
   m_RelayDatagramTransports --> m_RelayRoom["RelayRoom"]
+  m_RelayDatagramTransports --> m_SilenceTracker["SilenceTracker"]
   m_RelayDatagramTransports --> m_TransportCapabilities["TransportCapabilities"]
   m_RelayDatagramTransports --> m_TransportPeer["TransportPeer"]
   m_RelayDatagramTransports --> m_TransportSettings["TransportSettings"]

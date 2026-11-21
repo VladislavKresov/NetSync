@@ -5,8 +5,8 @@ kind: class
 visibility: public
 files:
   - src/NetSync/NetConfig.cs
-depends_on: 8
-used_by: 12
+depends_on: 7
+used_by: 13
 ---
 
 # NetConfig
@@ -54,6 +54,7 @@ Shared configuration for `NetClient` and `NetServer`. Client and server must agr
 - `public bool Encryption`
 - `public ChannelPriority Priority`
 - `internal bool NeedsTransform`
+- `internal bool IsReliable`
 - `public ChannelConfig()`
 - `public ChannelConfig(TransportType transport, ReliabilityMode reliability = ReliabilityMode.Unreliable,`
 
@@ -61,12 +62,16 @@ Shared configuration for `NetClient` and `NetServer`. Client and server must agr
 
 - `public Dictionary<byte, ChannelConfig> Channels`
 - `public EventDelivery EventDelivery`
+- `public string AppId`
+- `public ushort AppProtocolVersion`
+- `internal ulong AppIdHash`
 - `public int PingIntervalMs`
 - `public int PingTimeoutMs`
 - `public int ConnectTimeoutMs`
 - `public const int DefaultMaxMessageSize = 16 * 1024 * 1024`
 - `public int MaxMessageSize`
 - `public int WriteTimeoutMs`
+- `public int CloseFlushTimeoutMs`
 - `public int MaxPendingEvents`
 - `public int MaxConnections`
 - `public EncryptionConfig Encryption`
@@ -88,17 +93,17 @@ Shared configuration for `NetClient` and `NetServer`. Client and server must agr
 - `internal ChannelConfig ResolveOutgoing(Dictionary<byte, ChannelConfig> channelTable, byte channel, int length)`
 - `internal List<TransportType> BuildTransportList(Dictionary<byte, ChannelConfig> channelTable)`
 
-## Depends on (8)
+## Depends on (7)
 
 - **Pipeline/Reliability**: [[ReliabilityMode]] (`ChannelPriority`, `ReliabilityMode`)
-- **Pipeline/Security**: [[EcdhKeyExchange]], [[NetIdentity]]
+- **Pipeline/Security**: [[NetIdentity]]
 - **Transports**: [[ITransportFactory]] (`ITransportFactory`, `TcpTransportFactory`, `UdpTransportFactory`), [[TransportSettings]]
 - **Transports/Simulation**: [[NetworkSimulation]], [[SimulatedTransportFactory]]
 - **Diagnostics**: [[INetLogger]] (`INetLogger`, `NullNetLogger`)
 
-## Used by (12)
+## Used by (13)
 
-- **Peers**: [[ChannelTransform]] (`ChannelConfig`), [[ConnectionApproval]] (`TransportType`), [[EventDispatcher]] (`EventDelivery`), [[NetClient]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `ReconnectPolicy`, `TransportType`), [[NetConnection]] (`TransportType`), [[NetListener]] (`TransportType`), [[NetServer]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `TransportType`), [[PeerProtocol]] (`KeyExchangeMode`)
+- **Peers**: [[ChannelTransform]] (`ChannelConfig`), [[ConnectionApproval]] (`TransportType`), [[EventDispatcher]] (`EventDelivery`), [[NetClient]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `ReconnectPolicy`, `TransportType`), [[NetConnection]] (`TransportType`), [[NetListener]] (`TransportType`), [[NetServer]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `TransportType`), [[PeerProtocol]] (`KeyExchangeMode`), [[UdpHandover]] (`TransportType`)
 - **Pipeline/Reliability**: [[ReliableEndpoint]] (`ChannelConfig`, `NetConfig`, `TransportType`)
 - **Pipeline/Security**: [[ConnectionCrypto]] (`TransportType`)
 - **Transports**: [[TransportSettings]]
@@ -109,7 +114,6 @@ Shared configuration for `NetClient` and `NetServer`. Client and server must agr
 ```mermaid
 flowchart LR
   m_NetConfig["NetConfig"]:::self
-  m_NetConfig --> m_EcdhKeyExchange["EcdhKeyExchange"]
   m_NetConfig --> m_INetLogger["INetLogger"]
   m_NetConfig --> m_ITransportFactory["ITransportFactory"]
   m_NetConfig --> m_NetIdentity["NetIdentity"]
@@ -129,5 +133,6 @@ flowchart LR
   m_PeerProtocol["PeerProtocol"] --> m_NetConfig
   m_ReliableEndpoint["ReliableEndpoint"] --> m_NetConfig
   m_TransportSettings --> m_NetConfig
+  m_UdpHandover["UdpHandover"] --> m_NetConfig
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000
 ```

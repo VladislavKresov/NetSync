@@ -5,7 +5,7 @@ kind: class
 visibility: public
 files:
   - src/NetSync/Transports/Tcp/TcpTransport.cs
-depends_on: 17
+depends_on: 18
 used_by: 4
 ---
 
@@ -54,9 +54,9 @@ Client-side TCP transport. Frames packets, keeps the link alive with ping/pong, 
 - `public void Disconnect()`
 - `public void Dispose()`
 
-## Depends on (17)
+## Depends on (18)
 
-- **Transports**: [[BulkSender]], [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedTransport`, `PriorityMapping`), [[ITransport]], [[PacketProtocol]], [[TcpConnect]], [[TransportCapabilities]] (`IPooledReceiveTransport`, `ReceivedPacket`), [[TransportSettings]]
+- **Transports**: [[BulkSender]], [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedTransport`, `PriorityMapping`), [[ITransport]], [[PacketProtocol]], [[SilenceTracker]], [[TcpConnect]], [[TransportCapabilities]] (`IPooledReceiveTransport`, `ReceivedPacket`), [[TransportSettings]]
 - **Transports/Tcp**: [[TcpFrameReader]]
 - **Sending**: [[SendPriority]], [[SendQueue]]
 - **Pipeline/Fragmentation**: [[FragmentBuffer]], [[PacketFragmenter]]
@@ -87,6 +87,7 @@ flowchart LR
   m_TcpTransport --> m_Pooled["Pooled"]
   m_TcpTransport --> m_SendPriority["SendPriority"]
   m_TcpTransport --> m_SendQueue["SendQueue"]
+  m_TcpTransport --> m_SilenceTracker["SilenceTracker"]
   m_TcpTransport --> m_TcpConnect["TcpConnect"]
   m_TcpTransport --> m_TcpFrameReader["TcpFrameReader"]
   m_TcpTransport --> m_TransportCapabilities["TransportCapabilities"]

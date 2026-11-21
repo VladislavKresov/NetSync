@@ -5,7 +5,7 @@ kind: class
 visibility: internal
 files:
   - src/NetSync/Transports/MessageLink.cs
-depends_on: 12
+depends_on: 13
 used_by: 4
 ---
 
@@ -46,9 +46,9 @@ NetSync packets over any reliable, message-preserving pipe (a WebSocket, a relay
 - `public string? CheckHealth(TransportSettings settings, bool expectPongs)`
 - `public void Dispose()`
 
-## Depends on (12)
+## Depends on (13)
 
-- **Transports**: [[BulkSender]], [[IPrioritizedTransport]] (`PriorityMapping`), [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[TransportSettings]]
+- **Transports**: [[BulkSender]], [[IPrioritizedTransport]] (`PriorityMapping`), [[PacketProtocol]] (`PacketProtocol`, `PacketType`), [[SilenceTracker]], [[TransportSettings]]
 - **Transports/Tcp**: [[TcpTransport]]
 - **Sending**: [[SendPriority]], [[SendQueue]]
 - **Pipeline/Fragmentation**: [[FragmentBuffer]], [[PacketFragmenter]]
@@ -75,6 +75,7 @@ flowchart LR
   m_MessageLink --> m_Pooled["Pooled"]
   m_MessageLink --> m_SendPriority["SendPriority"]
   m_MessageLink --> m_SendQueue["SendQueue"]
+  m_MessageLink --> m_SilenceTracker["SilenceTracker"]
   m_MessageLink --> m_TcpTransport["TcpTransport"]
   m_MessageLink --> m_TransportSettings["TransportSettings"]
   m_RelayProtocol["RelayProtocol"] --> m_MessageLink

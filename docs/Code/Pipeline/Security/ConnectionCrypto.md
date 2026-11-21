@@ -36,7 +36,6 @@ Per-connection key material and the payload cipher, for one side (client or serv
 - `public CipherSuite Suite`
 - `public int MaxOverhead`
 - `public static ConnectionCrypto FromSecret(byte[] sessionSecret, CipherSuite suite, bool isClient)`
-- `public static ConnectionCrypto FromPresharedKey(byte[] presharedKey, long sessionToken, CipherSuite suite, bool isClient)`
 - `public LinkSecurity CreateLinkSecurity(TransportType slot)`
 - `public int Encrypt(ReadOnlySpan<byte> plaintext, Span<byte> destination)`
 - `public int Decrypt(ReadOnlySpan<byte> message, Span<byte> destination)`

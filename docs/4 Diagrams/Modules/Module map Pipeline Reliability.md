@@ -21,6 +21,7 @@ flowchart LR
   m_NetConnection["NetConnection<br/><small>Peers</small>"]:::api
   m_NetServer["NetServer<br/><small>Peers</small>"]:::api
   m_PeerProtocol["PeerProtocol<br/><small>Peers</small>"]:::api
+  m_UdpHandover["UdpHandover<br/><small>Peers</small>"]:::api
   m_LinkSecurity["LinkSecurity<br/><small>Pipeline/Security</small>"]:::session
   m_DisconnectReason["DisconnectReason<br/><small>Transports</small>"]:::transports
   m_IPrioritizedTransport["IPrioritizedTransport<br/><small>Transports</small>"]:::transports
@@ -43,6 +44,7 @@ flowchart LR
   m_NetClient -.-> m_ReliableEndpoint
   m_NetConnection -.-> m_ReliableEndpoint
   m_NetServer -.-> m_ReliableEndpoint
+  m_UdpHandover -.-> m_ReliableEndpoint
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
   classDef transports fill:#a8c8f5,stroke:#555,color:#000
@@ -57,4 +59,4 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 | [[CongestionControl]] | Link round-trip estimator from ACK samples (RFC 6298: SRTT/RTTVAR, Karn's rule is applied by the caller — only first transmissions are sampled). Also tracks… | 0 | 1 |
 | [[ReliabilityClock]] | One thread drives the retransmission timers of every `ReliableEndpoint` in the process. A loop per endpoint would mean a timer wake-up per connection every… | 2 | 1 |
 | [[ReliabilityMode]] | Delivery guarantees for a channel. Only meaningful on UDP: TCP channels are inherently reliable-ordered and ignore this setting. | 0 | 5 |
-| [[ReliableEndpoint]] | Reliability engine for one unreliable datagram link (ENet-style ARQ with TCP-grade congestion control). One instance per datagram link; transport-agnostic —… | 12 | 4 |
+| [[ReliableEndpoint]] | Reliability engine for one unreliable datagram link (ENet-style ARQ with TCP-grade congestion control). One instance per datagram link; transport-agnostic —… | 12 | 5 |

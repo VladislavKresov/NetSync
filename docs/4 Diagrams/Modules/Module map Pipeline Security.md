@@ -13,9 +13,11 @@ flowchart LR
   subgraph f_Pipeline_Security["Pipeline/Security"]
     m_CipherSuite["CipherSuite"]:::session
     m_ConnectionCrypto["ConnectionCrypto"]:::session
-    m_EcdhKeyExchange["EcdhKeyExchange"]:::session
+    m_HandshakeKeys["HandshakeKeys"]:::session
+    m_Hkdf["Hkdf"]:::session
     m_LinkSecurity["LinkSecurity"]:::session
     m_NetIdentity["NetIdentity"]:::session
+    m_X25519["X25519"]:::session
   end
   m_NetConfig["NetConfig<br/><small>(root)</small>"]:::api
   m_ChannelTransform["ChannelTransform<br/><small>Peers</small>"]:::api
@@ -39,9 +41,10 @@ flowchart LR
   m_NetRelayServer -.-> m_ConnectionCrypto
   m_NetServer -.-> m_ConnectionCrypto
   m_RelayDatagramTransports -.-> m_ConnectionCrypto
-  m_NetClient -.-> m_EcdhKeyExchange
-  m_NetConfig -.-> m_EcdhKeyExchange
-  m_NetServer -.-> m_EcdhKeyExchange
+  m_HandshakeKeys --> m_CipherSuite
+  m_HandshakeKeys --> m_Hkdf
+  m_NetClient -.-> m_HandshakeKeys
+  m_NetServer -.-> m_HandshakeKeys
   m_LinkSecurity --> m_CipherSuite
   m_LinkSecurity --> m_ConnectionCrypto
   m_LinkSecurity -.-> m_PeerProtocol
@@ -49,8 +52,11 @@ flowchart LR
   m_NetConnection -.-> m_LinkSecurity
   m_NetServer -.-> m_LinkSecurity
   m_ReliableEndpoint -.-> m_LinkSecurity
+  m_NetIdentity --> m_X25519
   m_NetClient -.-> m_NetIdentity
   m_NetConfig -.-> m_NetIdentity
+  m_NetClient -.-> m_X25519
+  m_NetServer -.-> m_X25519
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
   classDef transports fill:#a8c8f5,stroke:#555,color:#000
@@ -62,8 +68,10 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 
 | Module | Summary | Uses | Used by |
 |---|---|---|---|
-| [[CipherSuite]] | How an encrypted connection protects packets. Negotiated in the handshake: the client offers what its runtime supports, the server picks the best common suite. | 0 | 6 |
+| [[CipherSuite]] | How an encrypted connection protects packets. Negotiated in the handshake: the client offers what its runtime supports, the server picks the best common suite. | 0 | 7 |
 | [[ConnectionCrypto]] | Per-connection key material and the payload cipher, for one side (client or server) of one connection. Every key is per direction (client→server,… | 3 | 7 |
-| [[EcdhKeyExchange]] | Ephemeral ECDH (NIST P-256) helpers. Public keys travel as raw 64-byte X‖Y points — no ASN.1, works on both target frameworks. The exchange is… | 0 | 3 |
+| [[HandshakeKeys]] | Session keys of protocol v4. Every keyed connection runs an ephemeral X25519 exchange, so both sides contribute fresh randomness to every session; what… | 2 | 2 |
+| [[Hkdf]] | HKDF with HMAC-SHA256 (RFC 5869). The class library has one only on newer targets; this is the same function everywhere. | 0 | 1 |
 | [[LinkSecurity]] | Authenticates every post-handshake packet on one link of an encrypted connection. Envelope: [MsgSecure:1][counter:8 BE][tag:16][inner peer message…] -… | 4 | 5 |
-| [[NetIdentity]] | A server's long-term identity: an ECDSA P-256 key pair. The server signs every ECDH handshake with it; clients that pin the public key (`TrustedServerKeys`)… | 0 | 2 |
+| [[NetIdentity]] | A server's long-term identity: an X25519 key pair. Every handshake mixes an exchange with this key into the session keys, so only the holder of the private… | 1 | 2 |
+| [[X25519]] |  | 0 | 3 |

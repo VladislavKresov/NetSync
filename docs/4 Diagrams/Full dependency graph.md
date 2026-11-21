@@ -21,6 +21,7 @@ flowchart LR
   m_NetListener["NetListener<br/><small>Peers</small>"]:::api
   m_NetServer["NetServer<br/><small>Peers</small>"]:::api
   m_PeerProtocol["PeerProtocol<br/><small>Peers</small>"]:::api
+  m_UdpHandover["UdpHandover<br/><small>Peers</small>"]:::api
   m_NetMessages["NetMessages<br/><small>Messaging</small>"]:::api
   m_NetStreams["NetStreams<br/><small>Streams</small>"]:::api
   m_DiscoveryMessage["DiscoveryMessage<br/><small>Discovery</small>"]:::api
@@ -33,9 +34,11 @@ flowchart LR
   m_ReliableEndpoint["ReliableEndpoint<br/><small>Pipeline/Reliability</small>"]:::session
   m_CipherSuite["CipherSuite<br/><small>Pipeline/Security</small>"]:::session
   m_ConnectionCrypto["ConnectionCrypto<br/><small>Pipeline/Security</small>"]:::session
-  m_EcdhKeyExchange["EcdhKeyExchange<br/><small>Pipeline/Security</small>"]:::session
+  m_HandshakeKeys["HandshakeKeys<br/><small>Pipeline/Security</small>"]:::session
+  m_Hkdf["Hkdf<br/><small>Pipeline/Security</small>"]:::session
   m_LinkSecurity["LinkSecurity<br/><small>Pipeline/Security</small>"]:::session
   m_NetIdentity["NetIdentity<br/><small>Pipeline/Security</small>"]:::session
+  m_X25519["X25519<br/><small>Pipeline/Security</small>"]:::session
   m_Compressor["Compressor<br/><small>Pipeline/Compression</small>"]:::session
   m_BulkSender["BulkSender<br/><small>Transports</small>"]:::transports
   m_DisconnectReason["DisconnectReason<br/><small>Transports</small>"]:::transports
@@ -47,6 +50,7 @@ flowchart LR
   m_MessageLink["MessageLink<br/><small>Transports</small>"]:::transports
   m_PacketProtocol["PacketProtocol<br/><small>Transports</small>"]:::transports
   m_ReceiveBuffer["ReceiveBuffer<br/><small>Transports</small>"]:::transports
+  m_SilenceTracker["SilenceTracker<br/><small>Transports</small>"]:::transports
   m_TcpAcceptLoop["TcpAcceptLoop<br/><small>Transports</small>"]:::transports
   m_TcpConnect["TcpConnect<br/><small>Transports</small>"]:::transports
   m_TransportCapabilities["TransportCapabilities<br/><small>Transports</small>"]:::transports
@@ -81,7 +85,6 @@ flowchart LR
   m_PacketFragmenter["PacketFragmenter<br/><small>Pipeline/Fragmentation</small>"]:::infrastructure
   m_NetReader["NetReader<br/><small>Serialization</small>"]:::foundation
   m_NetWriter["NetWriter<br/><small>Serialization</small>"]:::foundation
-  m_NetConfig --> m_EcdhKeyExchange
   m_NetConfig --> m_ITransportFactory
   m_NetConfig --> m_NetIdentity
   m_NetConfig --> m_NetworkSimulation
@@ -97,8 +100,8 @@ flowchart LR
   m_NetClient --> m_ConnectionApproval
   m_NetClient --> m_ConnectionCrypto
   m_NetClient --> m_DisconnectReason
-  m_NetClient --> m_EcdhKeyExchange
   m_NetClient --> m_EventDispatcher
+  m_NetClient --> m_HandshakeKeys
   m_NetClient --> m_IPrioritizedTransport
   m_NetClient --> m_ITransport
   m_NetClient --> m_LinkSecurity
@@ -111,13 +114,16 @@ flowchart LR
   m_NetClient --> m_SendPriority
   m_NetClient --> m_TransportCapabilities
   m_NetClient --> m_TransportSettings
+  m_NetClient --> m_UdpHandover
   m_NetClient --> m_UdpTransport
+  m_NetClient --> m_X25519
   m_NetConnection --> m_CipherSuite
   m_NetConnection --> m_ConnectionCrypto
   m_NetConnection --> m_LinkSecurity
   m_NetConnection --> m_NetServer
   m_NetConnection --> m_ReliableEndpoint
   m_NetConnection --> m_TransportPeer
+  m_NetConnection --> m_UdpHandover
   m_NetDataHandlers --> m_NetConnection
   m_NetListener --> m_ITransportFactory
   m_NetServer --> m_ChannelTransform
@@ -125,8 +131,8 @@ flowchart LR
   m_NetServer --> m_ConnectionApproval
   m_NetServer --> m_ConnectionCrypto
   m_NetServer --> m_DisconnectReason
-  m_NetServer --> m_EcdhKeyExchange
   m_NetServer --> m_EventDispatcher
+  m_NetServer --> m_HandshakeKeys
   m_NetServer --> m_IPrioritizedTransport
   m_NetServer --> m_IServerTransport
   m_NetServer --> m_ITransportFactory
@@ -143,8 +149,10 @@ flowchart LR
   m_NetServer --> m_TransportPeer
   m_NetServer --> m_TransportSettings
   m_NetServer --> m_UdpServerTransport
+  m_NetServer --> m_X25519
   m_PeerProtocol --> m_CipherSuite
   m_PeerProtocol --> m_ConnectionApproval
+  m_UdpHandover --> m_ReliableEndpoint
   m_NetMessages --> m_NetClient
   m_NetMessages --> m_NetConnection
   m_NetMessages --> m_NetReader
@@ -169,9 +177,12 @@ flowchart LR
   m_ReliableEndpoint --> m_ReliabilityMode
   m_ConnectionCrypto --> m_CipherSuite
   m_ConnectionCrypto --> m_LinkSecurity
+  m_HandshakeKeys --> m_CipherSuite
+  m_HandshakeKeys --> m_Hkdf
   m_LinkSecurity --> m_CipherSuite
   m_LinkSecurity --> m_ConnectionCrypto
   m_LinkSecurity --> m_PeerProtocol
+  m_NetIdentity --> m_X25519
   m_BulkSender --> m_PacketFragmenter
   m_BulkSender --> m_PacketProtocol
   m_BulkSender --> m_SendPriority
@@ -196,11 +207,14 @@ flowchart LR
   m_MessageLink --> m_PacketProtocol
   m_MessageLink --> m_SendPriority
   m_MessageLink --> m_SendQueue
+  m_MessageLink --> m_SilenceTracker
   m_MessageLink --> m_TcpTransport
   m_MessageLink --> m_TransportSettings
   m_PacketProtocol --> m_PacketFragmenter
+  m_SilenceTracker --> m_TransportSettings
   m_TransportCapabilities --> m_TransportPeer
   m_TransportPeer --> m_IServerTransport
+  m_TransportPeer --> m_SilenceTracker
   m_TcpFrameReader --> m_PacketProtocol
   m_TcpFrameReader --> m_ReceiveBuffer
   m_TcpServerTransport --> m_BulkSender
@@ -228,6 +242,7 @@ flowchart LR
   m_TcpTransport --> m_PacketProtocol
   m_TcpTransport --> m_SendPriority
   m_TcpTransport --> m_SendQueue
+  m_TcpTransport --> m_SilenceTracker
   m_TcpTransport --> m_TcpConnect
   m_TcpTransport --> m_TcpFrameReader
   m_TcpTransport --> m_TransportCapabilities
@@ -248,6 +263,7 @@ flowchart LR
   m_UdpTransport --> m_DisconnectReason
   m_UdpTransport --> m_ITransport
   m_UdpTransport --> m_PacketProtocol
+  m_UdpTransport --> m_SilenceTracker
   m_UdpTransport --> m_TransportCapabilities
   m_UdpTransport --> m_TransportSettings
   m_UdpTransport --> m_UdpSockets
@@ -270,6 +286,7 @@ flowchart LR
   m_WebSocketServerTransport --> m_PacketProtocol
   m_WebSocketServerTransport --> m_ReceiveBuffer
   m_WebSocketServerTransport --> m_SendPriority
+  m_WebSocketServerTransport --> m_SendQueue
   m_WebSocketServerTransport --> m_TcpAcceptLoop
   m_WebSocketServerTransport --> m_TransportCapabilities
   m_WebSocketServerTransport --> m_TransportPeer
@@ -314,6 +331,7 @@ flowchart LR
   m_RelayDatagramTransports --> m_RelayHostSession
   m_RelayDatagramTransports --> m_RelayProtocol
   m_RelayDatagramTransports --> m_RelayRoom
+  m_RelayDatagramTransports --> m_SilenceTracker
   m_RelayDatagramTransports --> m_TransportCapabilities
   m_RelayDatagramTransports --> m_TransportPeer
   m_RelayDatagramTransports --> m_TransportSettings
@@ -344,6 +362,7 @@ flowchart LR
   m_RelayStreamTransports --> m_RelayProtocol
   m_RelayStreamTransports --> m_RelayRoom
   m_RelayStreamTransports --> m_SendPriority
+  m_RelayStreamTransports --> m_SendQueue
   m_RelayStreamTransports --> m_TcpConnect
   m_RelayStreamTransports --> m_TransportCapabilities
   m_RelayStreamTransports --> m_TransportPeer
@@ -357,14 +376,14 @@ flowchart LR
   classDef foundation fill:#dddddd,stroke:#555,color:#000
 ```
 
-78 modules, 269 drawn dependencies. Colour = layer: API, Session, Transports, Infrastructure, Foundation.
+82 modules, 284 drawn dependencies. Colour = layer: API, Session, Transports, Infrastructure, Foundation.
 
 ## References not drawn
 
-- [[NetConfig]] ← 12 modules: [[ChannelTransform]], [[ConnectionApproval]], [[ConnectionCrypto]], [[EventDispatcher]], [[FragmentBuffer]], [[NetClient]], [[NetConnection]], [[NetListener]], [[NetServer]], [[PeerProtocol]], [[ReliableEndpoint]], [[TransportSettings]]
+- [[NetConfig]] ← 13 modules: [[ChannelTransform]], [[ConnectionApproval]], [[ConnectionCrypto]], [[EventDispatcher]], [[FragmentBuffer]], [[NetClient]], [[NetConnection]], [[NetListener]], [[NetServer]], [[PeerProtocol]], [[ReliableEndpoint]], [[TransportSettings]], [[UdpHandover]]
 - [[INetLogger]] ← 26 modules: [[ChannelTransform]], [[Compressor]], [[DatagramBatcher]], [[EventDispatcher]], [[FramedConnection]], [[LanServerBroadcaster]], [[LanServerListener]], [[NetClient]], [[NetConfig]], [[NetRelayServer]], [[NetServer]], [[RelayDatagramTransports]], [[RelayHostSession]], [[RelayRoom]], [[RelayStreamTransports]], [[ReliableEndpoint]], [[SendQueue]], [[TaskExtensions]], [[TcpAcceptLoop]], [[TcpServerTransport]], [[TcpTransport]], [[TransportSettings]], [[UdpServerTransport]], [[UdpTransport]], [[WebSocketClientTransport]], [[WebSocketServerTransport]]
 - [[NetMetrics]] ← 6 modules: [[BulkSender]], [[MessageLink]], [[RelayDatagramTransports]], [[TcpTransport]], [[UdpTransport]], [[WebSocketClientTransport]]
 - [[NetStatistics]] ← 2 modules: [[NetClient]], [[NetConnection]]
 - [[AsyncSignal]] ← 2 modules: [[DatagramBatcher]], [[SendQueue]]
-- [[NetTime]] ← 18 modules: [[FragmentBuffer]], [[FramedConnection]], [[MessageLink]], [[NetClient]], [[NetRelayServer]], [[NetServer]], [[RelayDatagramTransports]], [[RelayStreamTransports]], [[ReliabilityClock]], [[ReliableEndpoint]], [[SendQueue]], [[SimulatedTransportFactory]], [[TcpServerTransport]], [[TcpTransport]], [[TransportPeer]], [[UdpServerTransport]], [[UdpTransport]], [[WebSocketServerTransport]]
-- [[Pooled]] ← 20 modules: [[BulkSender]], [[ChannelTransform]], [[Compressor]], [[DatagramBatcher]], [[EventDispatcher]], [[FragmentBuffer]], [[FramedConnection]], [[LinkSecurity]], [[MessageLink]], [[NetClient]], [[NetServer]], [[ReceiveBuffer]], [[RelayDatagramTransports]], [[ReliableEndpoint]], [[SendQueue]], [[TcpServerTransport]], [[TcpTransport]], [[TransportCapabilities]], [[UdpServerTransport]], [[UdpTransport]]
+- [[NetTime]] ← 20 modules: [[DatagramBatcher]], [[FragmentBuffer]], [[FramedConnection]], [[MessageLink]], [[NetClient]], [[NetRelayServer]], [[NetServer]], [[RelayDatagramTransports]], [[RelayStreamTransports]], [[ReliabilityClock]], [[ReliableEndpoint]], [[SendQueue]], [[SimulatedTransportFactory]], [[TcpServerTransport]], [[TcpTransport]], [[TransportPeer]], [[UdpHandover]], [[UdpServerTransport]], [[UdpTransport]], [[WebSocketServerTransport]]
+- [[Pooled]] ← 21 modules: [[BulkSender]], [[ChannelTransform]], [[Compressor]], [[DatagramBatcher]], [[EventDispatcher]], [[FragmentBuffer]], [[FramedConnection]], [[LinkSecurity]], [[MessageLink]], [[NetClient]], [[NetServer]], [[ReceiveBuffer]], [[RelayDatagramTransports]], [[ReliableEndpoint]], [[SendQueue]], [[TcpServerTransport]], [[TcpTransport]], [[TransportCapabilities]], [[UdpHandover]], [[UdpServerTransport]], [[UdpTransport]]

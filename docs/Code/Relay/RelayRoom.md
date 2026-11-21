@@ -37,6 +37,7 @@ A room on a `NetRelayServer`: the way to reach a server behind NAT. Host — kee
 - `public string RoomId`
 - `public IPEndPoint? RelayEndPoint`
 - `public bool AllowDirect`
+- `public string? AccessKey`
 - `public ITransportFactory Tcp`
 - `public ITransportFactory Udp`
 - `internal Func<AddressFamily, IDatagramSocket> SocketFactory`

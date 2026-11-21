@@ -23,12 +23,14 @@ classDiagram
   RelayStreamClientTransport ..|> IPrioritizedTransport
   RelayStreamClientTransport ..|> IPooledReceiveTransport
   RelayStreamHostTransport ..|> IServerTransport
+  RelayStreamHostTransport ..|> IPeerFlushingServerTransport
   RelayStreamHostTransport ..|> IPrioritizedServerTransport
   SimulatedClientTransport ..|> ITransport
   SimulatedServerTransport ..|> IServerTransport
   SimulatedServerTransport ..|> IWrappedServerTransport
   SimulatedTransportFactory ..|> ITransportFactory
   TcpServerTransport ..|> IServerTransport
+  TcpServerTransport ..|> IPeerFlushingServerTransport
   TcpServerTransport ..|> IPrioritizedServerTransport
   TcpServerTransport ..|> IPooledReceiveServerTransport
   TcpServerTransport ..|> ITrustAwareServerTransport
@@ -46,6 +48,7 @@ classDiagram
   WebSocketClientTransport ..|> ITransport
   WebSocketClientTransport ..|> IPrioritizedTransport
   WebSocketClientTransport ..|> IPooledReceiveTransport
+  WebSocketServerTransport ..|> IPeerFlushingServerTransport
   WebSocketServerTransport ..|> IServerTransport
   WebSocketServerTransport ..|> IPrioritizedServerTransport
   WebSocketTransportFactory ..|> ITransportFactory
@@ -57,6 +60,8 @@ classDiagram
   <<interface>> IDatagramSocket
   class INetLogger
   <<interface>> INetLogger
+  class IPeerFlushingServerTransport
+  <<interface>> IPeerFlushingServerTransport
   class IPooledReceiveServerTransport
   <<interface>> IPooledReceiveServerTransport
   class IPooledReceiveTransport
@@ -85,6 +90,7 @@ classDiagram
 | [[TransportCapabilities\|IDatagramBoundaryTransport]] | [[UdpTransport\|UdpTransport]] |
 | [[DatagramSocket\|IDatagramSocket]] | [[DatagramSocket\|DatagramSocket]] |
 | [[INetLogger\|INetLogger]] | [[INetLogger\|ConsoleNetLogger]], [[INetLogger\|NullNetLogger]] |
+| [[TransportCapabilities\|IPeerFlushingServerTransport]] | [[RelayStreamTransports\|RelayStreamHostTransport]], [[TcpServerTransport\|TcpServerTransport]], [[WebSocketServerTransport\|WebSocketServerTransport]] |
 | [[TransportCapabilities\|IPooledReceiveServerTransport]] | [[RelayDatagramTransports\|RelayDatagramHostTransport]], [[TcpServerTransport\|TcpServerTransport]], [[UdpServerTransport\|UdpServerTransport]] |
 | [[TransportCapabilities\|IPooledReceiveTransport]] | [[RelayDatagramTransports\|RelayDatagramClientTransport]], [[RelayStreamTransports\|RelayStreamClientTransport]], [[TcpTransport\|TcpTransport]], [[UdpTransport\|UdpTransport]], [[WebSocketClientTransport\|WebSocketClientTransport]] |
 | [[IPrioritizedTransport\|IPrioritizedServerTransport]] | [[RelayStreamTransports\|RelayStreamHostTransport]], [[TcpServerTransport\|TcpServerTransport]], [[WebSocketServerTransport\|WebSocketServerTransport]] |

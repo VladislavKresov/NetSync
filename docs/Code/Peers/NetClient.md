@@ -7,7 +7,7 @@ files:
   - src/NetSync/Peers/NetClient.Connect.cs
   - src/NetSync/Peers/NetClient.Services.cs
   - src/NetSync/Peers/NetClient.cs
-depends_on: 26
+depends_on: 28
 used_by: 2
 ---
 
@@ -56,12 +56,12 @@ used_by: 2
 - `public void Disconnect()`
 - `public void Dispose()`
 
-## Depends on (26)
+## Depends on (28)
 
 - **(root)**: [[NetConfig]] (`ChannelConfig`, `EventDelivery`, `KeyExchangeMode`, `NetConfig`, `ReconnectPolicy`, `TransportType`)
-- **Peers**: [[ChannelTransform]], [[ClockSync]], [[ConnectionApproval]] (`ConnectionRejectedException`, `ConnectionRejection`), [[EventDispatcher]] (`EventDispatcher`, `IDataEventSink`), [[NetDataHandlers]] (`NetDataHandler`), [[PeerProtocol]]
+- **Peers**: [[ChannelTransform]], [[ClockSync]], [[ConnectionApproval]] (`ConnectionRejectedException`, `ConnectionRejection`), [[EventDispatcher]] (`EventDispatcher`, `IDataEventSink`), [[NetDataHandlers]] (`NetDataHandler`), [[PeerProtocol]], [[UdpHandover]]
 - **Pipeline/Reliability**: [[ReliabilityMode]], [[ReliableEndpoint]]
-- **Pipeline/Security**: [[CipherSuite]] (`CipherSuite`, `CipherSuites`), [[ConnectionCrypto]], [[EcdhKeyExchange]], [[LinkSecurity]], [[NetIdentity]]
+- **Pipeline/Security**: [[CipherSuite]] (`CipherSuite`, `CipherSuites`), [[ConnectionCrypto]], [[HandshakeKeys]], [[LinkSecurity]], [[NetIdentity]], [[X25519]]
 - **Transports**: [[DisconnectReason]], [[IPrioritizedTransport]] (`IPrioritizedTransport`, `PriorityMapping`), [[ITransport]], [[TransportCapabilities]] (`IDatagramBoundaryTransport`, `IPooledReceiveTransport`), [[TransportSettings]]
 - **Transports/Udp**: [[PathMtuProbe]], [[UdpTransport]]
 - **Sending**: [[SendPriority]]
@@ -84,8 +84,8 @@ flowchart LR
   m_NetClient --> m_ConnectionApproval["ConnectionApproval"]
   m_NetClient --> m_ConnectionCrypto["ConnectionCrypto"]
   m_NetClient --> m_DisconnectReason["DisconnectReason"]
-  m_NetClient --> m_EcdhKeyExchange["EcdhKeyExchange"]
   m_NetClient --> m_EventDispatcher["EventDispatcher"]
+  m_NetClient --> m_HandshakeKeys["HandshakeKeys"]
   m_NetClient --> m_INetLogger["INetLogger"]
   m_NetClient --> m_IPrioritizedTransport["IPrioritizedTransport"]
   m_NetClient --> m_ITransport["ITransport"]
@@ -103,7 +103,9 @@ flowchart LR
   m_NetClient --> m_SendPriority["SendPriority"]
   m_NetClient --> m_TransportCapabilities["TransportCapabilities"]
   m_NetClient --> m_TransportSettings["TransportSettings"]
+  m_NetClient --> m_UdpHandover["UdpHandover"]
   m_NetClient --> m_UdpTransport["UdpTransport"]
+  m_NetClient --> m_X25519["X25519"]
   m_NetMessages["NetMessages"] --> m_NetClient
   m_NetStreams["NetStreams"] --> m_NetClient
   classDef self fill:#f9d77e,stroke:#b8860b,color:#000

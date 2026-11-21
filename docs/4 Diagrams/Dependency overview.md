@@ -11,14 +11,14 @@ Folders of `src/NetSync` (≈ namespaces) and how many module-to-module referenc
 ```mermaid
 flowchart TB
   f__root_["(root)<br/>1 module"]:::api
-  f_Peers["Peers<br/>10 modules"]:::api
+  f_Peers["Peers<br/>11 modules"]:::api
   f_Messaging["Messaging<br/>1 module"]:::api
   f_Streams["Streams<br/>1 module"]:::api
   f_Discovery["Discovery<br/>4 modules"]:::api
   f_Pipeline_Reliability["Pipeline/Reliability<br/>4 modules"]:::session
-  f_Pipeline_Security["Pipeline/Security<br/>5 modules"]:::session
+  f_Pipeline_Security["Pipeline/Security<br/>7 modules"]:::session
   f_Pipeline_Compression["Pipeline/Compression<br/>1 module"]:::session
-  f_Transports["Transports<br/>15 modules"]:::transports
+  f_Transports["Transports<br/>16 modules"]:::transports
   f_Transports_Tcp["Transports/Tcp<br/>3 modules"]:::transports
   f_Transports_Udp["Transports/Udp<br/>6 modules"]:::transports
   f_Transports_WebSockets["Transports/WebSockets<br/>4 modules"]:::transports
@@ -28,11 +28,11 @@ flowchart TB
   f_Pipeline_Fragmentation["Pipeline/Fragmentation<br/>2 modules"]:::infrastructure
   f_Serialization["Serialization<br/>2 modules"]:::foundation
   f__root_ -->|1| f_Pipeline_Reliability
-  f__root_ -->|2| f_Pipeline_Security
+  f__root_ -->|1| f_Pipeline_Security
   f__root_ -->|2| f_Transports
   f__root_ -->|2| f_Transports_Simulation
-  f_Peers -->|5| f_Pipeline_Reliability
-  f_Peers -->|14| f_Pipeline_Security
+  f_Peers -->|6| f_Pipeline_Reliability
+  f_Peers -->|16| f_Pipeline_Security
   f_Peers -->|1| f_Pipeline_Compression
   f_Peers -->|14| f_Transports
   f_Peers -->|3| f_Transports_Udp
@@ -53,18 +53,18 @@ flowchart TB
   f_Transports -->|2| f_Transports_Udp
   f_Transports -->|5| f_Sending
   f_Transports -->|4| f_Pipeline_Fragmentation
-  f_Transports_Tcp -->|20| f_Transports
+  f_Transports_Tcp -->|21| f_Transports
   f_Transports_Tcp -->|4| f_Sending
   f_Transports_Tcp -->|4| f_Pipeline_Fragmentation
-  f_Transports_Udp -->|14| f_Transports
+  f_Transports_Udp -->|15| f_Transports
   f_Transports_WebSockets -->|23| f_Transports
-  f_Transports_WebSockets -->|2| f_Sending
+  f_Transports_WebSockets -->|3| f_Sending
   f_Transports_Simulation -->|6| f_Transports
   f_Relay -->|2| f_Pipeline_Security
-  f_Relay -->|27| f_Transports
+  f_Relay -->|28| f_Transports
   f_Relay -->|1| f_Transports_Tcp
   f_Relay -->|6| f_Transports_Udp
-  f_Relay -->|5| f_Sending
+  f_Relay -->|6| f_Sending
   f_Pipeline_Fragmentation -->|1| f_Transports
   classDef api fill:#f9d77e,stroke:#555,color:#000
   classDef session fill:#e3b8f0,stroke:#555,color:#000
@@ -77,9 +77,9 @@ Colour = layer: API, Session, Transports, Infrastructure, Foundation (top to bot
 
 | Folder | Used by folders (references) |
 |---|---|
-| (root) | Peers (8), Pipeline/Reliability (1), Pipeline/Security (1), Transports (1), Pipeline/Fragmentation (1) |
+| (root) | Peers (9), Pipeline/Reliability (1), Pipeline/Security (1), Transports (1), Pipeline/Fragmentation (1) |
 | Diagnostics | (root) (1), Peers (6), Discovery (2), Pipeline/Reliability (1), Pipeline/Compression (1), Transports (4), Transports/Tcp (3), Transports/Udp (4), Transports/WebSockets (3), Relay (7), Sending (1), Internal (1) |
-| Internal | Peers (6), Pipeline/Reliability (3), Pipeline/Security (1), Pipeline/Compression (1), Transports (6), Transports/Tcp (4), Transports/Udp (6), Transports/WebSockets (1), Transports/Simulation (1), Relay (6), Sending (3), Pipeline/Fragmentation (2) |
+| Internal | Peers (8), Pipeline/Reliability (3), Pipeline/Security (1), Pipeline/Compression (1), Transports (6), Transports/Tcp (4), Transports/Udp (7), Transports/WebSockets (1), Transports/Simulation (1), Relay (6), Sending (3), Pipeline/Fragmentation (2) |
 
 ## Dependencies against the layering
 
@@ -101,8 +101,8 @@ Module-to-module references from the row folder to the column folder (`T/` = Tra
 
 | from ↓ to → | (root) | Peers | Messaging | Streams | Discovery | P/Reliability | P/Security | P/Compression | Transports | T/Tcp | T/Udp | T/WebSockets | T/Simulation | Relay | Sending | P/Fragmentation | Serialization | Diagnostics | Internal |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **(root)** | · |  |  |  |  | 1 | 2 |  | 2 |  |  |  | 2 |  |  |  |  | 1 |  |
-| **Peers** | 8 | · |  |  |  | 5 | 14 | 1 | 14 |  | 3 |  | 1 |  | 2 |  |  | 6 | 6 |
+| **(root)** | · |  |  |  |  | 1 | 1 |  | 2 |  |  |  | 2 |  |  |  |  | 1 |  |
+| **Peers** | 9 | · |  |  |  | 6 | 16 | 1 | 14 |  | 3 |  | 1 |  | 2 |  |  | 6 | 8 |
 | **Messaging** |  | 3 | · |  |  |  |  |  |  |  |  |  |  |  |  |  | 2 |  |  |
 | **Streams** |  | 2 |  | · |  |  |  |  |  |  |  |  |  |  |  |  | 2 |  |  |
 | **Discovery** |  |  |  |  | · |  |  |  | 1 |  |  |  |  |  |  |  |  | 2 |  |
@@ -110,11 +110,11 @@ Module-to-module references from the row folder to the column folder (`T/` = Tra
 | **P/Security** | 1 | 1 |  |  |  |  | · |  |  |  |  |  |  |  |  |  |  |  | 1 |
 | **P/Compression** |  |  |  |  |  |  |  | · |  |  |  |  |  |  |  |  |  | 1 | 1 |
 | **Transports** | 1 |  |  |  |  | 1 |  |  | · | 3 | 2 |  |  |  | 5 | 4 |  | 4 | 6 |
-| **T/Tcp** |  |  |  |  |  |  |  |  | 20 | · |  |  |  |  | 4 | 4 |  | 3 | 4 |
-| **T/Udp** |  |  |  |  |  |  |  |  | 14 |  | · |  |  |  |  |  |  | 4 | 6 |
-| **T/WebSockets** |  |  |  |  |  |  |  |  | 23 |  |  | · |  |  | 2 |  |  | 3 | 1 |
+| **T/Tcp** |  |  |  |  |  |  |  |  | 21 | · |  |  |  |  | 4 | 4 |  | 3 | 4 |
+| **T/Udp** |  |  |  |  |  |  |  |  | 15 |  | · |  |  |  |  |  |  | 4 | 7 |
+| **T/WebSockets** |  |  |  |  |  |  |  |  | 23 |  |  | · |  |  | 3 |  |  | 3 | 1 |
 | **T/Simulation** |  |  |  |  |  |  |  |  | 6 |  |  |  | · |  |  |  |  |  | 1 |
-| **Relay** |  |  |  |  |  |  | 2 |  | 27 | 1 | 6 |  |  | · | 5 |  |  | 7 | 6 |
+| **Relay** |  |  |  |  |  |  | 2 |  | 28 | 1 | 6 |  |  | · | 6 |  |  | 7 | 6 |
 | **Sending** |  |  |  |  |  |  |  |  |  |  |  |  |  |  | · |  |  | 1 | 3 |
 | **P/Fragmentation** | 1 |  |  |  |  |  |  |  | 1 |  |  |  |  |  |  | · |  |  | 2 |
 | **Serialization** |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  |  | · |  |  |
@@ -126,14 +126,14 @@ Module-to-module references from the row folder to the column folder (`T/` = Tra
 | Folder | Layer | Modules |
 |---|---|---|
 | [[Module map root\|(root)]] | API | [[NetConfig]] |
-| [[Module map Peers\|Peers]] | API | [[ChannelTransform]], [[ClockSync]], [[ConnectionApproval]], [[EventDispatcher]], [[NetClient]], [[NetConnection]], [[NetDataHandlers]], [[NetListener]], [[NetServer]], [[PeerProtocol]] |
+| [[Module map Peers\|Peers]] | API | [[ChannelTransform]], [[ClockSync]], [[ConnectionApproval]], [[EventDispatcher]], [[NetClient]], [[NetConnection]], [[NetDataHandlers]], [[NetListener]], [[NetServer]], [[PeerProtocol]], [[UdpHandover]] |
 | [[Module map Messaging\|Messaging]] | API | [[NetMessages]] |
 | [[Module map Streams\|Streams]] | API | [[NetStreams]] |
 | [[Module map Discovery\|Discovery]] | API | [[DiscoveryMessage]], [[LanServerBroadcaster]], [[LanServerListener]], [[NetQuery]] |
 | [[Module map Pipeline Reliability\|Pipeline/Reliability]] | Session | [[CongestionControl]], [[ReliabilityClock]], [[ReliabilityMode]], [[ReliableEndpoint]] |
-| [[Module map Pipeline Security\|Pipeline/Security]] | Session | [[CipherSuite]], [[ConnectionCrypto]], [[EcdhKeyExchange]], [[LinkSecurity]], [[NetIdentity]] |
+| [[Module map Pipeline Security\|Pipeline/Security]] | Session | [[CipherSuite]], [[ConnectionCrypto]], [[HandshakeKeys]], [[Hkdf]], [[LinkSecurity]], [[NetIdentity]], [[X25519]] |
 | [[Module map Pipeline Compression\|Pipeline/Compression]] | Session | [[Compressor]] |
-| [[Module map Transports\|Transports]] | Transports | [[BulkSender]], [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]], [[IServerTransport]], [[ITransport]], [[ITransportFactory]], [[MessageLink]], [[PacketProtocol]], [[ReceiveBuffer]], [[TcpAcceptLoop]], [[TcpConnect]], [[TransportCapabilities]], [[TransportPeer]], [[TransportSettings]] |
+| [[Module map Transports\|Transports]] | Transports | [[BulkSender]], [[DisconnectReason]], [[DualStack]], [[IPrioritizedTransport]], [[IServerTransport]], [[ITransport]], [[ITransportFactory]], [[MessageLink]], [[PacketProtocol]], [[ReceiveBuffer]], [[SilenceTracker]], [[TcpAcceptLoop]], [[TcpConnect]], [[TransportCapabilities]], [[TransportPeer]], [[TransportSettings]] |
 | [[Module map Transports Tcp\|Transports/Tcp]] | Transports | [[TcpFrameReader]], [[TcpServerTransport]], [[TcpTransport]] |
 | [[Module map Transports Udp\|Transports/Udp]] | Transports | [[DatagramBatcher]], [[EndPointCache]], [[PathMtuProbe]], [[UdpServerTransport]], [[UdpSockets]], [[UdpTransport]] |
 | [[Module map Transports WebSockets\|Transports/WebSockets]] | Transports | [[WebSocketClientTransport]], [[WebSocketHandshake]], [[WebSocketServerTransport]], [[WebSocketTransportFactory]] |

@@ -21,6 +21,7 @@ flowchart LR
     m_MessageLink["MessageLink"]:::transports
     m_PacketProtocol["PacketProtocol"]:::transports
     m_ReceiveBuffer["ReceiveBuffer"]:::transports
+    m_SilenceTracker["SilenceTracker"]:::transports
     m_TcpAcceptLoop["TcpAcceptLoop"]:::transports
     m_TcpConnect["TcpConnect"]:::transports
     m_TransportCapabilities["TransportCapabilities"]:::transports
@@ -132,6 +133,7 @@ flowchart LR
   m_MessageLink --> m_PacketProtocol
   m_MessageLink -.-> m_SendPriority
   m_MessageLink -.-> m_SendQueue
+  m_MessageLink --> m_SilenceTracker
   m_MessageLink -.-> m_TcpTransport
   m_MessageLink --> m_TransportSettings
   m_RelayProtocol -.-> m_MessageLink
@@ -156,6 +158,10 @@ flowchart LR
   m_WebSocketClientTransport -.-> m_ReceiveBuffer
   m_WebSocketHandshake -.-> m_ReceiveBuffer
   m_WebSocketServerTransport -.-> m_ReceiveBuffer
+  m_SilenceTracker --> m_TransportSettings
+  m_RelayDatagramTransports -.-> m_SilenceTracker
+  m_TcpTransport -.-> m_SilenceTracker
+  m_UdpTransport -.-> m_SilenceTracker
   m_NetRelayServer -.-> m_TcpAcceptLoop
   m_TcpServerTransport -.-> m_TcpAcceptLoop
   m_WebSocketServerTransport -.-> m_TcpAcceptLoop
@@ -174,6 +180,7 @@ flowchart LR
   m_WebSocketClientTransport -.-> m_TransportCapabilities
   m_WebSocketServerTransport -.-> m_TransportCapabilities
   m_TransportPeer --> m_IServerTransport
+  m_TransportPeer --> m_SilenceTracker
   m_NetConnection -.-> m_TransportPeer
   m_NetServer -.-> m_TransportPeer
   m_RelayDatagramTransports -.-> m_TransportPeer
@@ -215,11 +222,12 @@ Solid arrows stay inside the folder; dotted ones cross its boundary (outside mod
 | [[IServerTransport]] | Server-side transport: listens on a port and manages many peers. Events are raised on background network threads (see `ITransport` notes). | 2 | 11 |
 | [[ITransport]] | Client-side transport: a single link to a remote server. Threading contract: all events are raised on background network threads. Never block inside a… | 1 | 10 |
 | [[ITransportFactory]] | Creates the implementation behind a transport slot. Register a factory in `TransportFactories` to run NetSync over your own transport (WebSocket, a platform… | 7 | 6 |
-| [[MessageLink]] | NetSync packets over any reliable, message-preserving pipe (a WebSocket, a relay tunnel): [type:1][payload] per message — Ping, Pong, Data — with a priority… | 12 | 4 |
+| [[MessageLink]] | NetSync packets over any reliable, message-preserving pipe (a WebSocket, a relay tunnel): [type:1][payload] per message — Ping, Pong, Data — with a priority… | 13 | 4 |
 | [[PacketProtocol]] | Wire format helpers. UDP datagram: [type:1][payload] TCP frame: [type:1][length:4 BE][payload] (Ping/Pong: [type:1][timestamp:8 BE]) Frame builders write… | 1 | 14 |
 | [[ReceiveBuffer]] | A connection's receive buffer that is small while traffic is small. It starts at `SmallSize` — enough for many small frames per socket read — grows only… | 1 | 5 |
+| [[SilenceTracker]] | Decides when a link has been silent long enough to call it dead. Silence is counted in keepalive rounds this process actually ran, not only in elapsed time:… | 1 | 5 |
 | [[TcpAcceptLoop]] | The accept loop of every TCP-based listener (TCP, WebSocket, relay). One misbehaving client never stops the listener: each is served on its own task, and a… | 1 | 3 |
 | [[TcpConnect]] | Outgoing TCP connects that honor cancellation on every target. | 0 | 3 |
 | [[TransportCapabilities]] | Zero-copy delivery for a client transport: the peer layer receives the transport's own (pooled) buffer, valid only during the call. When set, DataReceived… | 2 | 10 |
-| [[TransportPeer]] | A remote peer as seen by a server transport. Transport-specific state stays inside the transport (`TransportState` is internal on purpose). | 2 | 11 |
-| [[TransportSettings]] | Tuning shared by all built-in transports. `NetClient` and `NetServer` fill it from `NetConfig`. | 2 | 16 |
+| [[TransportPeer]] | A remote peer as seen by a server transport. Transport-specific state stays inside the transport (`TransportState` is internal on purpose). | 3 | 11 |
+| [[TransportSettings]] | Tuning shared by all built-in transports. `NetClient` and `NetServer` fill it from `NetConfig`. | 2 | 17 |

@@ -6,7 +6,7 @@ visibility: internal
 files:
   - src/NetSync/Internal/NetTime.cs
 depends_on: 0
-used_by: 18
+used_by: 20
 ---
 
 # NetTime
@@ -36,13 +36,13 @@ Monotonic clock. DateTime.UtcNow is not monotonic (NTP jumps, DST issues on some
 
 —
 
-## Used by (18)
+## Used by (20)
 
-- **Peers**: [[NetClient]], [[NetServer]]
+- **Peers**: [[NetClient]], [[NetServer]], [[UdpHandover]]
 - **Pipeline/Reliability**: [[ReliabilityClock]], [[ReliableEndpoint]]
 - **Transports**: [[MessageLink]], [[TransportPeer]]
 - **Transports/Tcp**: [[TcpServerTransport]], [[TcpTransport]]
-- **Transports/Udp**: [[UdpServerTransport]], [[UdpTransport]]
+- **Transports/Udp**: [[DatagramBatcher]], [[UdpServerTransport]], [[UdpTransport]]
 - **Transports/WebSockets**: [[WebSocketServerTransport]]
 - **Transports/Simulation**: [[SimulatedTransportFactory]]
 - **Relay**: [[FramedConnection]], [[NetRelayServer]], [[RelayDatagramTransports]], [[RelayStreamTransports]]
@@ -54,6 +54,7 @@ Monotonic clock. DateTime.UtcNow is not monotonic (NTP jumps, DST issues on some
 ```mermaid
 flowchart LR
   m_NetTime["NetTime"]:::self
+  m_DatagramBatcher["DatagramBatcher"] --> m_NetTime
   m_FragmentBuffer["FragmentBuffer"] --> m_NetTime
   m_FramedConnection["FramedConnection"] --> m_NetTime
   m_MessageLink["MessageLink"] --> m_NetTime
@@ -69,6 +70,7 @@ flowchart LR
   m_TcpServerTransport["TcpServerTransport"] --> m_NetTime
   m_TcpTransport["TcpTransport"] --> m_NetTime
   m_TransportPeer["TransportPeer"] --> m_NetTime
+  m_UdpHandover["UdpHandover"] --> m_NetTime
   m_UdpServerTransport["UdpServerTransport"] --> m_NetTime
   m_UdpTransport["UdpTransport"] --> m_NetTime
   m_WebSocketServerTransport["WebSocketServerTransport"] --> m_NetTime

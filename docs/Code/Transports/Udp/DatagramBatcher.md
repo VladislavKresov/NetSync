@@ -5,7 +5,7 @@ kind: class
 visibility: internal
 files:
   - src/NetSync/Transports/Udp/DatagramBatcher.cs
-depends_on: 4
+depends_on: 5
 used_by: 2
 ---
 
@@ -66,11 +66,11 @@ Packs small UDP packets into shared datagrams — one socket call carries many m
 - `public int Count`
 - `public int FirstHeader`
 
-## Depends on (4)
+## Depends on (5)
 
 - **Transports**: [[PacketProtocol]] (`PacketType`)
 - **Diagnostics**: [[INetLogger]]
-- **Internal**: [[AsyncSignal]], [[Pooled]]
+- **Internal**: [[AsyncSignal]], [[NetTime]], [[Pooled]]
 
 ## Used by (2)
 
@@ -83,6 +83,7 @@ flowchart LR
   m_DatagramBatcher["DatagramBatcher"]:::self
   m_DatagramBatcher --> m_AsyncSignal["AsyncSignal"]
   m_DatagramBatcher --> m_INetLogger["INetLogger"]
+  m_DatagramBatcher --> m_NetTime["NetTime"]
   m_DatagramBatcher --> m_PacketProtocol["PacketProtocol"]
   m_DatagramBatcher --> m_Pooled["Pooled"]
   m_UdpServerTransport["UdpServerTransport"] --> m_DatagramBatcher
