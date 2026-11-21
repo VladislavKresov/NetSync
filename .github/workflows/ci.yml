@@ -48,6 +48,21 @@ jobs:
             --blame-hang-timeout 3m --blame-hang-dump-type none -- xUnit.ParallelizeTestCollections=false 2>&1 | tee sequential-output.txt || true
           python3 tools/ci-annotate.py sequential-output.txt
 
+  native-aot:
+    # The library declares itself AOT-compatible: publish a sample as a trimmed native binary and
+    # run it — an encrypted connection echoing over TCP and reliable UDP (Echo selftest).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Publish Echo with NativeAOT (trim and AOT warnings are errors)
+        run: dotnet publish samples/Echo -c Release -r linux-x64 -p:AotSample=true -p:TreatWarningsAsErrors=true -o aot
+      - name: Run the native binary
+        run: ./aot/Echo selftest
+
   pack:
     runs-on: ubuntu-latest
     needs: build-test

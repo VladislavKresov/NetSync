@@ -9,7 +9,7 @@ tags: [project]
 1. Bump `<Version>` in `src/NetSync/NetSync.csproj` and date the release in `CHANGELOG.md`. Protocol v4 is frozen: new wire behaviour goes behind a feature bit ([Handshake v4](../3%20Internals/Handshake%20v4.md)), never a new `PeerProtocol.ProtocolVersion`.
 2. `dotnet pack src/NetSync -c Release` → `.nupkg` + `.snupkg` (README embedded). Package validation fails the pack when the public API breaks compatibility with the baseline release (`PackageValidationBaselineVersion`, 2.0.0-rc.5).
 3. Tag `v<version>` and push — `.github/workflows/release.yml` tests, packs and pushes through trusted publishing: no stored key (nuget.org → Trusted Publishing policy for this repository and `release.yml`; the profile name is `NUGET_USER` in the workflow). `ci.yml` builds both targets with warnings as errors, runs both suites on .NET 8 and .NET 10 on Windows, Linux and macOS, checks the docs' links, packs.
-4. NativeAOT smoke test: `dotnet publish samples/Echo -c Release -r win-x64 -p:AotSample=true`.
+4. NativeAOT: CI publishes `samples/Echo` as a trimmed native binary (`-p:AotSample=true`) and runs `Echo selftest` — an encrypted connection echoing over TCP and reliable UDP. By hand: `dotnet publish samples/Echo -c Release -r <rid> -p:AotSample=true`, then `Echo selftest`.
 
 ## Unity package (core)
 

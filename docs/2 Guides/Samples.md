@@ -8,7 +8,7 @@ tags: [guide]
 
 ## Echo
 
-`samples/Echo` — the smallest client/server: channel 0 TCP, channel 1 UDP, echo. `dotnet run -- server 7777`, `dotnet run -- client 7777 tcp|udp`. Also the NativeAOT smoke test ([Releasing](../5%20Project/Releasing.md)).
+`samples/Echo` — the smallest client/server: channel 0 TCP, channel 1 UDP, echo. `dotnet run -- server 7777`, `dotnet run -- client 7777 tcp|udp`. `dotnet run -- selftest` runs both ends in one process over an encrypted connection and exits 0 when every echo came back — CI runs it as a NativeAOT binary ([Releasing](../5%20Project/Releasing.md)).
 
 ## FileTransfer
 

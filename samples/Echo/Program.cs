@@ -10,13 +10,18 @@ using NetSync.Peers;
 //   dotnet run -- server 7777
 //   dotnet run -- client 7777 tcp
 //   dotnet run -- client 7777 udp
+//   dotnet run -- selftest          (both ends in one process, exits 0 when every echo came back)
 
 var logger = ConsoleNetLogger.Instance;
 logger.MinLevel = NetLogLevel.Debug;
 
+if (args.Length == 1 && args[0] == "selftest") {
+    return await SelfTest.RunAsync(); // non-interactive: CI runs it as a NativeAOT binary
+}
+
 if (args.Length < 2 || !int.TryParse(args[1], out int port)) {
-    Console.WriteLine("Usage: Echo <server|client> <port> [tcp|udp]");
-    return;
+    Console.WriteLine("Usage: Echo <server|client> <port> [tcp|udp]   or   Echo selftest");
+    return 1;
 }
 
 static NetConfig MakeConfig(INetLogger logger) {
@@ -59,3 +64,4 @@ else {
     }
     client.Disconnect();
 }
+return 0;
