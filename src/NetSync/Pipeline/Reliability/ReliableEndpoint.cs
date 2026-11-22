@@ -70,7 +70,6 @@ namespace NetSync.Pipeline.Reliability {
         public const int RelDataHeaderSize = 5;   // [type][flags][channel][seq:2]
         public const int RelAckSize = 8;          // [type][channel][anchorSeq:2][mask:4]
         private const byte FlagFragment = 0x01;
-        private const int FastRetransmitThreshold = 3;
 
         private const int MaxSparePendingPackets = 512;
 
@@ -84,6 +83,8 @@ namespace NetSync.Pipeline.Reliability {
             public int InFlight;
             /// <summary>Acked or disposed while in flight: the last sender recycles it.</summary>
             public bool Released;
+            /// <summary>Resent because a later packet arrived first (time-based detection), not by timeout.</summary>
+            public bool FastResent;
         }
 
         private sealed class SenderState {
@@ -98,6 +99,12 @@ namespace NetSync.Pipeline.Reliability {
             public readonly Dictionary<ushort, PendingPacket> Pending = new Dictionary<ushort, PendingPacket>();
             public readonly Stack<PendingPacket> Spare = new Stack<PendingPacket>();
             public TaskCompletionSource<bool>? WindowWaiter;
+            // Time-based loss detection (RACK, RFC 8985): the most recently sent packet known to
+            // have arrived, its round trip, and how much reordering the path is allowed.
+            public long RackSentAtMs = long.MinValue;
+            public ushort RackSeq;
+            public double RackRttMs;
+            public double ReorderWindowMs = -1; // < 0: a quarter of the base RTT until reordering is seen
             /// <summary>
             /// A message is being admitted and others must queue behind it: messages get their
             /// sequence numbers in the order they were sent — all fragments of one message in a
@@ -193,6 +200,7 @@ namespace NetSync.Pipeline.Reliability {
         private readonly ITimeSource _time;
         private int _slowSends; // sends waiting for window space (or between fragments)
         private readonly List<PendingPacket> _due = new List<PendingPacket>(); // clock thread only
+        private readonly List<PendingPacket> _lostByTime = new List<PendingPacket>(); // clock thread only
         private long _lastScanMs;
         private int _started;
         private int _disposed;
@@ -632,6 +640,7 @@ namespace NetSync.Pipeline.Reliability {
             pending.FirstSentAtMs = now;
             pending.LastSentAtMs = now;
             pending.Attempts = 0;
+            pending.FastResent = false;
             pending.InFlight = 1; // the first transmission is about to read it
             pending.Released = false;
             sender.Pending[seq] = pending;
@@ -965,6 +974,11 @@ namespace NetSync.Pipeline.Reliability {
             fastResend.Clear();
             lock (sender.Lock) {
                 int removed = 0;
+                bool spurious = false;
+                double baseRtt;
+                lock (_rttLock) {
+                    baseRtt = _rtt.HasSample ? _rtt.BaseRtt : double.MaxValue;
+                }
                 if (sender.Pending.TryGetValue(anchorSeq, out var anchorPacket)) {
                     sender.Pending.Remove(anchorSeq);
                     removed++;
@@ -974,18 +988,29 @@ namespace NetSync.Pipeline.Reliability {
                             _rtt.AddSample(now - anchorPacket.FirstSentAtMs, now);
                         }
                     }
+                    spurious |= NoteDelivered(sender, anchorSeq, anchorPacket, now, baseRtt);
                     ReleaseLocked(sender, anchorPacket);
                 }
                 for (int i = 0; i < 32; i++) {
                     var acked = (ushort)(anchorSeq - 1 - i);
                     if ((mask & (1u << i)) != 0 && sender.Pending.TryGetValue(acked, out var ackedPacket)) {
                         sender.Pending.Remove(acked);
+                        spurious |= NoteDelivered(sender, acked, ackedPacket, now, baseRtt);
                         ReleaseLocked(sender, ackedPacket);
                         removed++;
                     }
                 }
                 if (removed == 0) {
                     return;
+                }
+                if (spurious) {
+                    // A packet we took for lost had only been overtaken: allow the path more
+                    // reordering, and take back the window that false alarm cost.
+                    lock (_rttLock) {
+                        double srtt = _rtt.HasSample ? _rtt.SmoothedRtt : 100;
+                        sender.ReorderWindowMs = Math.Min(srtt, Math.Max(2 * ReorderWindow(sender, baseRtt, srtt), 1));
+                        sender.Congestion?.UndoLastReduction(now);
+                    }
                 }
 
                 AdvanceLowestUnacked(sender);
@@ -995,17 +1020,10 @@ namespace NetSync.Pipeline.Reliability {
                     }
                 }
 
-                // Fast retransmit: packets this far behind an acked one are almost surely lost.
-                bool lossDetected = false;
-                for (ushort seq = sender.LowestUnacked; SeqDistance(anchorSeq, seq) >= FastRetransmitThreshold; seq++) {
-                    if (sender.Pending.TryGetValue(seq, out var lost) && lost.Attempts == 0) {
-                        lost.Attempts = 1;
-                        lost.LastSentAtMs = now;
-                        lost.InFlight++;
-                        fastResend.Add(lost);
-                        lossDetected = true;
-                    }
-                }
+                // Fast retransmit, by time (RACK): a packet sent before one that has arrived, and
+                // older than that one's round trip plus the reordering window, is lost. Merely
+                // overtaken packets (jitter) are not — counting places instead resent them all.
+                bool lossDetected = CollectLostByTime(sender, now, fastResend);
                 if (lossDetected && sender.Congestion != null) {
                     lock (_rttLock) {
                         sender.Congestion.OnLoss(_rtt, now);
@@ -1030,6 +1048,63 @@ namespace NetSync.Pipeline.Reliability {
                 }
                 fastResend.Clear();
             }
+        }
+
+        /// <summary>
+        /// Records a delivered packet for time-based loss detection. True when the packet had
+        /// been resent as lost but its acknowledgement came sooner than a round trip after the
+        /// resend — the original arrived: the "loss" was reordering. Caller holds the sender lock.
+        /// </summary>
+        private static bool NoteDelivered(SenderState sender, ushort seq, PendingPacket packet, long now, double baseRtt) {
+            if (packet.FastResent && now - packet.LastSentAtMs < 0.75 * baseRtt) {
+                return true; // ambiguous for RACK's clock: don't let it move
+            }
+            if (packet.LastSentAtMs > sender.RackSentAtMs ||
+                (packet.LastSentAtMs == sender.RackSentAtMs && SeqDistance(seq, sender.RackSeq) > 0)) {
+                sender.RackSentAtMs = packet.LastSentAtMs;
+                sender.RackSeq = seq;
+                sender.RackRttMs = now - packet.LastSentAtMs;
+            }
+            return false;
+        }
+
+        /// <summary>How much later than its successors a packet may arrive before it counts as lost.</summary>
+        private static double ReorderWindow(SenderState sender, double baseRtt, double srtt) {
+            double window = sender.ReorderWindowMs >= 0 ? sender.ReorderWindowMs : (baseRtt < double.MaxValue ? baseRtt / 4 : 0);
+            return Math.Max(1, Math.Min(window, srtt)); // at least the clock's resolution
+        }
+
+        /// <summary>
+        /// Marks first transmissions lost by time (RACK) and adds them to <paramref name="lost"/>
+        /// for an immediate resend. Caller holds the sender lock.
+        /// </summary>
+        private bool CollectLostByTime(SenderState sender, long now, List<PendingPacket> lost) {
+            if (sender.RackSentAtMs == long.MinValue) {
+                return false;
+            }
+            double reorder;
+            lock (_rttLock) {
+                reorder = ReorderWindow(sender, _rtt.HasSample ? _rtt.BaseRtt : double.MaxValue, _rtt.HasSample ? _rtt.SmoothedRtt : 100);
+            }
+            bool any = false;
+            foreach (var entry in sender.Pending) {
+                var packet = entry.Value;
+                if (packet.Attempts != 0) {
+                    continue; // resends are the retransmission timer's
+                }
+                bool sentBefore = packet.LastSentAtMs < sender.RackSentAtMs ||
+                                  (packet.LastSentAtMs == sender.RackSentAtMs && SeqDistance(sender.RackSeq, entry.Key) > 0);
+                if (!sentBefore || now - packet.LastSentAtMs < sender.RackRttMs + reorder) {
+                    continue;
+                }
+                packet.Attempts = 1;
+                packet.FastResent = true;
+                packet.LastSentAtMs = now;
+                packet.InFlight++;
+                lost.Add(packet);
+                any = true;
+            }
+            return any;
         }
 
         /// <summary>Recomputes LowestUnacked after acks. Caller holds the lock.</summary>
@@ -1074,9 +1149,20 @@ namespace NetSync.Pipeline.Reliability {
                         continue;
                     }
                     due.Clear();
+                    var lostByTime = _lostByTime;
+                    lostByTime.Clear();
                     bool dead = false;
                     lock (sender.Lock) {
+                        // Packets whose reordering allowance ran out since the last acknowledgement.
+                        if (CollectLostByTime(sender, now, lostByTime) && sender.Congestion != null) {
+                            lock (_rttLock) {
+                                sender.Congestion.OnLoss(_rtt, now);
+                            }
+                        }
                         foreach (var pending in sender.Pending.Values) {
+                            if (pending.FastResent && pending.LastSentAtMs == now) {
+                                continue; // just resent above
+                            }
                             int rto = Math.Min(baseRto << Math.Min(pending.Attempts, 4), _rtoCeilingMs);
                             if (now - pending.LastSentAtMs < rto) {
                                 continue;
@@ -1101,6 +1187,16 @@ namespace NetSync.Pipeline.Reliability {
                         }
                     }
 
+                    Interlocked.Add(ref _fastRetransmissions, lostByTime.Count);
+                    foreach (var pending in lostByTime) {
+                        try {
+                            Transmit(sender, pending).Forget(_logger);
+                        }
+                        catch (Exception ex) {
+                            _logger.Debug($"Fast retransmit failed: {ex.Message}");
+                        }
+                    }
+                    lostByTime.Clear();
                     Interlocked.Add(ref _retransmissions, due.Count);
                     foreach (var pending in due) {
                         try {

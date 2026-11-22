@@ -89,8 +89,13 @@ namespace NetSync.Pipeline.Reliability {
     /// <summary>
     /// Per-channel congestion window, in packets in flight.
     ///
-    /// Loss-based (Normal/High): Reno-style — slow start to ssthresh, then +1 packet per
-    /// RTT; a loss event halves the window at most once per RTT.
+    /// Loss-based (Normal/High): TCP Veno — slow start to ssthresh, then +1 packet per RTT.
+    /// On a loss event (at most one reduction per RTT) it estimates how many of its packets
+    /// sit in a queue: (window / base RTT − window / smoothed RTT) × base RTT. Under
+    /// <see cref="RandomLossBacklog"/> packets there is no queue to blame, so the loss was
+    /// random (Wi-Fi, a VPN tunnel) and the window shrinks only to 4/5; with a queue it is
+    /// congestion and the window halves, as in Reno. Without this a tunnel with 1 % loss
+    /// carried a few hundred KB/s however fast it was.
     ///
     /// Delay-based (Low): LEDBAT-style scavenger — grows only while the queueing delay
     /// it observes stays under <see cref="TargetQueueingDelayMs"/> and shrinks as soon as
@@ -103,10 +108,16 @@ namespace NetSync.Pipeline.Reliability {
         public const double MinWindow = 2;
         public const double TargetQueueingDelayMs = 25;
 
+        /// <summary>Veno's β: fewer of our packets than this in a queue means a loss was not congestion.</summary>
+        public const double RandomLossBacklog = 3;
+
         private readonly bool _background;
         private readonly double _maxWindow;
         private double _ssthresh;
         private long _lastReductionMs = long.MinValue / 2;
+        private double _windowBeforeRandomLoss; // > 0: recovering from a random loss toward this window
+        private double _undoWindow, _undoSsthresh;
+        private long _undoUntilMs = long.MinValue;
 
         public double Window { get; private set; } = InitialWindow;
 
@@ -133,9 +144,41 @@ namespace NetSync.Pipeline.Reliability {
             }
 
             for (int i = 0; i < newlyAcked; i++) {
-                Window += Window < _ssthresh ? 1 : 1 / Window;
+                if (Window < _ssthresh) {
+                    Window += 1; // slow start
+                }
+                else if (_windowBeforeRandomLoss > Window) {
+                    // After a random loss nothing says the path got slower: climb back to the old
+                    // window in halving steps (BIC's binary search), half the gap per round trip.
+                    Window += Math.Max(1, (_windowBeforeRandomLoss - Window) / 2) / Window;
+                }
+                else {
+                    _windowBeforeRandomLoss = 0;
+                    Window += 1 / Window; // congestion avoidance: +1 per round trip
+                }
             }
             Window = Math.Min(Window, _maxWindow);
+        }
+
+        /// <summary>
+        /// The last reduction was for a loss that wasn't one: the "lost" packet's original arrived
+        /// after all (it was only reordered). Restore the window it cost.
+        /// </summary>
+        public void UndoLastReduction(long nowMs) {
+            if (nowMs > _undoUntilMs || _undoWindow <= Window) {
+                return;
+            }
+            Window = _undoWindow;
+            _ssthresh = Math.Max(_ssthresh, _undoSsthresh);
+            _undoUntilMs = long.MinValue;
+        }
+
+        /// <summary>Packets of ours in the network queue, from how much the round trip exceeds its base (Veno's N).</summary>
+        private double Backlog(RttEstimator rtt) {
+            if (!rtt.HasSample || rtt.SmoothedRtt <= 0 || double.IsInfinity(rtt.BaseRtt) || rtt.BaseRtt >= double.MaxValue) {
+                return double.MaxValue; // no measurements yet: assume congestion
+            }
+            return Window * Math.Max(0, rtt.SmoothedRtt - rtt.BaseRtt) / rtt.SmoothedRtt;
         }
 
         public void OnLoss(RttEstimator rtt, long nowMs) {
@@ -143,7 +186,13 @@ namespace NetSync.Pipeline.Reliability {
             if (nowMs - _lastReductionMs <= rttMs) {
                 return; // same loss event — one reduction per round trip
             }
-            _ssthresh = Math.Max(MinWindow, Window / 2);
+            // The scavenger (Low) always yields; the others tell random loss from congestion.
+            bool random = !_background && Backlog(rtt) < RandomLossBacklog;
+            _undoWindow = Window;
+            _undoSsthresh = _ssthresh;
+            _undoUntilMs = nowMs + (long)(4 * rttMs); // a spurious resend shows within a few round trips
+            _windowBeforeRandomLoss = random ? Math.Max(Window, _windowBeforeRandomLoss) : 0;
+            _ssthresh = Math.Max(MinWindow, Window * (random ? 0.8 : 0.5));
             Window = _ssthresh;
             _lastReductionMs = nowMs;
         }
