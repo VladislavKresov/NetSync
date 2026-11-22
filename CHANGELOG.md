@@ -2,6 +2,15 @@
 
 Versions follow [Semantic Versioning](https://semver.org). The wire protocol has its own version, noted for each release: peers must speak the same one.
 
+## 2.0.0-rc.8 — unreleased
+
+Wire protocol v4 (compatible with 2.0.0-rc.5 – rc.7; only the sender's behaviour changed).
+
+### Changed
+- Reliable UDP channels keep their speed on links with delay, loss and reordering — VPN tunnels such as Hamachi or Radmin, Wi-Fi. 2 MB through `NetworkSimulation`: 20 ms + 1 % loss 276 → 959 KB/s, 20 ms + 3 % 187 → 659 KB/s, 5 ms jitter 825 KB/s → 28 MB/s.
+  - Loss is detected by time (RACK, RFC 8985) instead of by counting packets: packets merely overtaken by later ones are no longer resent, and a resend that turns out needless undoes the slowdown it caused.
+  - Congestion control tells random loss from congestion (TCP Veno): a loss without a queue building up costs a fifth of the window, recovered within a few round trips; a loss with a queue still halves it, so a real bottleneck stays protected.
+
 ## 2.0.0-rc.7 — 2026-11-22
 
 Wire protocol v4 (compatible with 2.0.0-rc.5 and rc.6).

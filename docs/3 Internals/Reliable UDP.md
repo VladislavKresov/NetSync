@@ -13,8 +13,9 @@ One [ReliableEndpoint](../Code/Pipeline/Reliability/ReliableEndpoint.md) per dat
 | Send window | **range gate**: `NextSeq` ≤ oldest unacked + 256 — the receiver's 256-slot dedup ring breaks otherwise; cwnd is an *extra* gate on the in-flight count |
 | RTT | RFC 6298 SRTT/RTTVAR from acks of never-retransmitted packets (Karn) + windowed base RTT — [CongestionControl](../Code/Pipeline/Reliability/CongestionControl.md) |
 | RTO | SRTT + 4·RTTVAR (≥ 30 ms), exponential backoff, 12 attempts → link dead |
-| Fast retransmit | a packet ≥ 3 behind an acked one is resent at once |
-| Congestion | per channel: Reno (slow start, +1/RTT, halve once per RTT on loss); `Low` priority → LEDBAT (grow only while queueing delay < 25 ms) |
+| Fast retransmit | by time (RACK, RFC 8985): a packet sent before one that has arrived, and older than that one's round trip plus a reordering window, is resent at once. The window starts at a quarter of the base RTT and doubles (up to SRTT) whenever a resend turns out spurious — its acknowledgement came sooner than a round trip after the resend; the window reduction that false alarm caused is undone. Overtaken (jittered) packets are not resent |
+| Congestion | per channel, at most one reduction per RTT. Normal/High: TCP Veno — the backlog estimate *window × (SRTT − base RTT) / SRTT* tells a random loss (fewer than 3 of our packets queued: shrink to 4/5, then climb back to the old window in BIC-style halving steps) from congestion (halve, then +1/RTT as Reno). `Low` priority → LEDBAT (grow only while queueing delay < 25 ms; halve on any loss) |
+| Throughput | 2 MB, `ThroughputTests` in virtual time: 40 ms RTT + 1 % loss ≈ 2.4 MB/s, + 3 % ≈ 590 KB/s, 60 ms + 1 % ≈ 1.6 MB/s, 5 ms jitter ≈ 75 % of the jitter-free rate; a 2 MB/s bottleneck runs at ~95 % with < 3 % resent |
 | Fragments | above `FragmentSize` (1100 B, raised up to 1453 B by path-MTU discovery); reliable or unreliable |
 | Timers | one process-wide [ReliabilityClock](../Code/Pipeline/Reliability/ReliabilityClock.md) thread scans every endpoint (5 ms tick, 10 ms per endpoint) |
 
