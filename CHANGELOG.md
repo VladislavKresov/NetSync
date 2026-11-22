@@ -2,6 +2,13 @@
 
 Versions follow [Semantic Versioning](https://semver.org). The wire protocol has its own version, noted for each release: peers must speak the same one.
 
+## 2.0.0-rc.7 — unreleased
+
+Wire protocol v4 (compatible with 2.0.0-rc.5 and rc.6).
+
+### Fixed
+- `NetWriter.WriteString` threw `ArgumentException` ("output byte buffer is too small") for any string that made the writer's buffer grow: the text was encoded into the buffer as it was before growing.
+
 ## 2.0.0-rc.6 — 2026-11-21
 
 Wire protocol v4 (compatible with 2.0.0-rc.5; the new behaviour needs both sides on rc.6).

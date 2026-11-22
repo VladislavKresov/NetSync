@@ -96,13 +96,10 @@ namespace NetSync.Serialization {
             }
             int byteCount = Encoding.UTF8.GetByteCount(value);
             WriteVarUInt((uint)byteCount);
-            Encoding.UTF8.GetBytes(value, 0, value.Length, _buffer, ReserveOffset(byteCount));
+            // Into the reserved span: Reserve may replace the buffer, so the target must come from it,
+            // never from the field read before the call (that was a bug: growing strings threw).
+            Encoding.UTF8.GetBytes(value.AsSpan(), Reserve(byteCount));
             return this;
-        }
-
-        private int ReserveOffset(int count) {
-            Reserve(count);
-            return _position - count;
         }
 
         /// <summary>Var-int length prefix + raw bytes.</summary>

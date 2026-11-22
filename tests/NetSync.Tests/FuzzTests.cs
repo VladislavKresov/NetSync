@@ -154,6 +154,34 @@ namespace NetSync.Tests {
         }
 
         [Fact]
+        public void Typed_Message_Reader() {
+            // Applications read their messages with NetReader: malformed input may only end in the
+            // documented EndOfStreamException, never another exception or a huge allocation.
+            var writer = new NetSync.Serialization.NetWriter(16);
+            writer.WriteString("hello").WriteVarUInt(300).WriteInt32(-5).WriteBytes(new byte[40]).WriteString(new string('ж', 50));
+            var seeds = new[] { writer.ToArray() };
+            var random = new Random(13);
+            Fuzz(seeds, 14, input => {
+                var reader = new NetSync.Serialization.NetReader(input);
+                try {
+                    for (int i = 0; i < 12; i++) {
+                        switch (random.Next(6)) {
+                            case 0: reader.ReadString(); break;
+                            case 1: reader.ReadVarUInt(); break;
+                            case 2: reader.ReadInt32(); break;
+                            case 3: Assert.True(reader.ReadBytes().Length <= input.Length); break;
+                            case 4: reader.ReadVarInt(); break;
+                            default: reader.ReadByte(); break;
+                        }
+                    }
+                }
+                catch (EndOfStreamException) {
+                    // the documented way a malformed message ends
+                }
+            });
+        }
+
+        [Fact]
         public void Udp_Batches() {
             var seeds = new[] {
                 new byte[] { 0x12, 2, 1, 2, 3, 4, 5, 6 },

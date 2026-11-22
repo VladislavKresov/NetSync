@@ -1,10 +1,80 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using NetSync.Serialization;
 using Xunit;
 
 namespace NetSync.Tests {
     public class SerializationTests {
+        [Fact]
+        public void A_String_That_Makes_The_Buffer_Grow_Is_Written_Whole() {
+            // Regression (2.0.0-rc.6): the encoder wrote into the buffer as it was before growing.
+            var writer = new NetWriter(16);
+            string text = new string('ж', 100); // 200 bytes of UTF-8
+            writer.WriteString(text);
+            Assert.Equal(text, new NetReader(writer.ToArray()).ReadString());
+        }
+
+        [Fact]
+        public void Strings_Of_Every_Length_Around_The_Growth_Points_Roundtrip() {
+            for (int length = 0; length <= 300; length++) {
+                foreach (string unit in new[] { "a", "ж", "€", "😀" }) { // 1, 2, 3 and 4 bytes per character
+                    var writer = new NetWriter(16);
+                    writer.WriteByte(7);
+                    string text = string.Concat(Enumerable.Repeat(unit, length));
+                    writer.WriteString(text).WriteInt32(42);
+                    var reader = new NetReader(writer.ToArray());
+                    Assert.Equal(7, reader.ReadByte());
+                    Assert.Equal(text, reader.ReadString());
+                    Assert.Equal(42, reader.ReadInt32());
+                }
+            }
+        }
+
+        [Fact]
+        public void Mixed_Writes_Roundtrip_Whatever_The_Starting_Capacity() {
+            var random = new Random(3);
+            for (int round = 0; round < 2000; round++) {
+                var writer = new NetWriter(random.Next(1, 64));
+                var expected = new List<object>();
+                for (int i = random.Next(1, 30); i > 0; i--) {
+                    switch (random.Next(4)) {
+                        case 0:
+                            var text = new string((char)random.Next(0x20, 0x500), random.Next(0, 200));
+                            writer.WriteString(text);
+                            expected.Add(text);
+                            break;
+                        case 1:
+                            var bytes = new byte[random.Next(0, 300)];
+                            random.NextBytes(bytes);
+                            writer.WriteBytes(bytes);
+                            expected.Add(bytes);
+                            break;
+                        case 2:
+                            int number = random.Next();
+                            writer.WriteInt32(number);
+                            expected.Add(number);
+                            break;
+                        default:
+                            uint varint = (uint)random.Next();
+                            writer.WriteVarUInt(varint);
+                            expected.Add(varint);
+                            break;
+                    }
+                }
+                var reader = new NetReader(writer.ToArray());
+                foreach (var item in expected) {
+                    switch (item) {
+                        case string text: Assert.Equal(text, reader.ReadString()); break;
+                        case byte[] bytes: Assert.Equal(bytes, reader.ReadBytes()); break;
+                        case int number: Assert.Equal(number, reader.ReadInt32()); break;
+                        case uint varint: Assert.Equal(varint, reader.ReadVarUInt()); break;
+                    }
+                }
+            }
+        }
+
         [Fact]
         public void All_Primitives_Roundtrip() {
             var writer = new NetWriter();
