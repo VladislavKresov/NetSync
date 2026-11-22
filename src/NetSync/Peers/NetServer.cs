@@ -56,7 +56,7 @@ namespace NetSync.Peers {
         public bool IsRunning => _running == 1;
 
         /// <summary>
-        /// The server's clock: milliseconds since <see cref="StartAsync"/>, monotonic. Clients see
+        /// The server's clock: milliseconds since <see cref="StartAsync(int, CancellationToken)"/>, monotonic. Clients see
         /// the same timeline through <see cref="NetClient.ServerTimeMs"/> — stamp snapshots,
         /// schedule events or interpolate against it.
         /// </summary>
@@ -114,7 +114,7 @@ namespace NetSync.Peers {
         /// <summary>
         /// Accept clients on another transport too — e.g. WebSockets for browsers next to plain
         /// TCP for native clients, both feeding the same connections, channels and events.
-        /// Call before <see cref="StartAsync"/>. The listener's <see cref="NetListener.Port"/>
+        /// Call before <see cref="StartAsync(int, CancellationToken)"/>. The listener's <see cref="NetListener.Port"/>
         /// is filled in once the server runs.
         /// </summary>
         /// <param name="slot">Which slot it serves (a WebSocket transport serves <see cref="TransportType.Tcp"/>).</param>
@@ -140,7 +140,26 @@ namespace NetSync.Peers {
         /// Pass 0 to let the OS pick one port shared by all transports. Returns the bound port.
         /// Listeners added with <see cref="AddListener"/> start on their own ports.
         /// </summary>
-        public async Task<int> StartAsync(int port, CancellationToken ct = default) {
+        public Task<int> StartAsync(int port, CancellationToken ct = default) => StartCoreAsync(port, ct);
+
+        /// <summary>
+        /// Starts listening on one local <paramref name="address"/> only — <see cref="System.Net.IPAddress.Loopback"/>
+        /// for a server only this machine can reach (no firewall prompt), or one adapter's address
+        /// (LAN, VPN). Otherwise as <see cref="StartAsync(int, CancellationToken)"/>. Returns the bound port.
+        /// </summary>
+        public Task<int> StartAsync(System.Net.IPAddress address, int port, CancellationToken ct = default) {
+            _settings.BindAddress = address ?? throw new ArgumentNullException(nameof(address));
+            return StartCoreAsync(port, ct);
+        }
+
+        /// <summary>
+        /// The port the OS picked for TCP is taken for UDP: worth another pick. Anything else (an
+        /// address that isn't this machine's, no permission) fails at once instead of 20 times.
+        /// </summary>
+        internal static bool IsPortConflict(SocketException ex) =>
+            ex.SocketErrorCode == SocketError.AddressAlreadyInUse || ex.SocketErrorCode == SocketError.AccessDenied;
+
+        private async Task<int> StartCoreAsync(int port, CancellationToken ct) {
             if (Interlocked.Exchange(ref _running, 1) == 1) {
                 throw new InvalidOperationException("Server already running");
             }
@@ -160,7 +179,7 @@ namespace NetSync.Peers {
                         Port = boundPort;
                         break;
                     }
-                    catch (SocketException) when (port == 0 && _transportTypes.Count > 1 && attempt < maxAttempts) {
+                    catch (SocketException ex) when (port == 0 && _transportTypes.Count > 1 && attempt < maxAttempts && IsPortConflict(ex)) {
                         // The OS gave TCP a port that is busy for UDP; retry with a new pick.
                         await StopTransportsAsync().ConfigureAwait(false);
                     }

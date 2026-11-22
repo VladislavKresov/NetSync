@@ -76,7 +76,7 @@ namespace NetSync.Transports.WebSockets {
                 throw new InvalidOperationException("Server transport already running");
             }
             try {
-                _listener = DualStack.StartTcpListener(port);
+                _listener = DualStack.StartTcpListener(port, _settings.BindAddress);
             }
             catch {
                 Volatile.Write(ref _running, 0);

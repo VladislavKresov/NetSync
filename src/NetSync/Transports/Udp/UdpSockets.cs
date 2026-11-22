@@ -15,8 +15,24 @@ namespace NetSync.Transports.Udp {
             return socket;
         }
 
-        /// <summary>Dual-stack (IPv6 + IPv4) server socket where possible, IPv4-only otherwise.</summary>
-        public static Socket BindServer(int port) {
+        /// <summary>
+        /// Server socket on all interfaces — dual-stack (IPv6 + IPv4) where possible, IPv4-only
+        /// otherwise — or on one local address when <paramref name="address"/> is given.
+        /// </summary>
+        public static Socket BindServer(int port, IPAddress? address = null) {
+            if (!DualStack.IsAnyAddress(address)) {
+                var bound = new Socket(address!.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+                try {
+                    RequireExclusivePort(bound);
+                    bound.Bind(new IPEndPoint(address, port));
+                    Configure(bound);
+                    return bound;
+                }
+                catch {
+                    bound.Dispose();
+                    throw;
+                }
+            }
             if (port != 0) {
                 RefuseIfHeldOverIpv4(port);
             }

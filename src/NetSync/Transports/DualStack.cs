@@ -10,7 +10,18 @@ namespace NetSync.Transports {
     /// IPv6 matter for mobile games.
     /// </summary>
     internal static class DualStack {
-        public static TcpListener StartTcpListener(int port) {
+        /// <summary>True for no address or a wildcard (all interfaces): bind dual-stack where possible.</summary>
+        public static bool IsAnyAddress(IPAddress? address) =>
+            address == null || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any);
+
+        /// <param name="port">0 = any free port.</param>
+        /// <param name="address">One local address to listen on (e.g. loopback, a VPN adapter); null = all interfaces.</param>
+        public static TcpListener StartTcpListener(int port, IPAddress? address = null) {
+            if (!IsAnyAddress(address)) {
+                var bound = new TcpListener(address!, port); // just this address, its own family
+                bound.Start();
+                return bound;
+            }
             if (Socket.OSSupportsIPv6) {
                 TcpListener? listener = null;
                 try {

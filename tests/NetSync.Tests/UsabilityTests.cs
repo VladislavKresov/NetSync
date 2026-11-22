@@ -222,7 +222,7 @@ namespace NetSync.Tests {
             await server.StopAsync();
         }
 
-        private static bool CanUseIPv6Loopback() {
+        internal static bool CanUseIPv6Loopback() {
             if (!Socket.OSSupportsIPv6) {
                 return false;
             }

@@ -6,7 +6,12 @@ Versions follow [Semantic Versioning](https://semver.org). The wire protocol has
 
 Wire protocol v4 (compatible with 2.0.0-rc.5 and rc.6).
 
+### Added
+- A server can listen on one local address: `NetServer.StartAsync(IPAddress, int)` or `NetConfig.BindAddress` — loopback for a machine-local server (no firewall prompt), or one adapter's address (LAN, VPN). Also `NetRelayServer.BindAddress` and `TransportSettings.BindAddress` for custom transports.
+
 ### Fixed
+- The UDP side of a server on a system without IPv6 dropped every datagram (the net8.0 build read IPv4 addresses with an IPv6 template), so clients fell back to TCP.
+- `NetServer.StartAsync(0)` retried 20 times on any socket error; it now retries only when the chosen port is taken.
 - `NetWriter.WriteString` threw `ArgumentException` ("output byte buffer is too small") for any string that made the writer's buffer grow: the text was encoded into the buffer as it was before growing.
 
 ## 2.0.0-rc.6 — 2026-11-21

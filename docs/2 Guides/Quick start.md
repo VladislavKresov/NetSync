@@ -32,7 +32,7 @@ await client.SendAsync(0, Encoding.UTF8.GetBytes("hello"));
 
 ## What happens
 
-1. `StartAsync` binds one port for TCP and UDP (dual-stack IPv6+IPv4) — [NetServer](../Code/Peers/NetServer.md).
+1. `StartAsync` binds one port for TCP and UDP (dual-stack IPv6+IPv4) on all interfaces — [NetServer](../Code/Peers/NetServer.md). `StartAsync(IPAddress.Loopback, port)` serves only this machine (no firewall prompt — handy for self-tests); an adapter's address serves only that network (LAN, VPN). `NetConfig.BindAddress` does the same from the config.
 2. `ConnectAsync` opens both links, runs the [Handshake v4](../3%20Internals/Handshake%20v4.md) on each, then joins; the server raises `ConnectionOpened`.
 3. Channel 0 goes over TCP, 1 straight over UDP, 2 through the [ReliableEndpoint](../Code/Pipeline/Reliability/ReliableEndpoint.md) over UDP — [Send path](../3%20Internals/Send%20path.md).
 

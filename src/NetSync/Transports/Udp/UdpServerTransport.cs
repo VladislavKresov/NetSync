@@ -96,7 +96,7 @@ namespace NetSync.Transports.Udp {
             }
 
             try {
-                _socket = UdpSockets.BindServer(port);
+                _socket = UdpSockets.BindServer(port, _settings.BindAddress);
             }
             catch {
                 Volatile.Write(ref _running, 0);
@@ -311,10 +311,22 @@ namespace NetSync.Transports.Udp {
             }
         }
 
+#if NET8_0_OR_GREATER
+        private static readonly IPEndPoint V4Template = new IPEndPoint(IPAddress.Any, 0);
+        private static readonly IPEndPoint V6Template = new IPEndPoint(IPAddress.IPv6Any, 0);
+
+        /// <summary>
+        /// By the address's own family: the socket is IPv4-only when bound to an IPv4 address or
+        /// on a system without IPv6 — an IPv6 template would reject its addresses.
+        /// </summary>
+        private static IPEndPoint FromSocketAddress(SocketAddress address) =>
+            (IPEndPoint)(address.Family == AddressFamily.InterNetworkV6 ? V6Template : V4Template).Create(address);
+#endif
+
         private static IPEndPoint ToEndPoint(object key) {
 #if NET8_0_OR_GREATER
             if (key is SocketAddress address) {
-                return DualStack.Normalize((IPEndPoint)new IPEndPoint(IPAddress.IPv6Any, 0).Create(address));
+                return DualStack.Normalize(FromSocketAddress(address));
             }
 #endif
             return DualStack.Normalize((IPEndPoint)key);
@@ -345,7 +357,7 @@ namespace NetSync.Transports.Udp {
             var source = (SocketAddress)receivedKey;
             var key = new SocketAddress(source.Family, source.Size);
             source.Buffer.Span.Slice(0, source.Size).CopyTo(key.Buffer.Span);
-            var endPoint = (IPEndPoint)new IPEndPoint(IPAddress.IPv6Any, 0).Create(key);
+            var endPoint = FromSocketAddress(key);
 #else
             var key = (IPEndPoint)receivedKey;
             var endPoint = key;

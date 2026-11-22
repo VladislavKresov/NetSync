@@ -289,13 +289,22 @@ namespace NetSync {
                 : new Transports.Simulation.SimulatedTransportFactory(factory, Simulation, datagram: slot == TransportType.Udp);
         }
 
+        /// <summary>
+        /// Server: the local address to listen on — <see cref="System.Net.IPAddress.Loopback"/> for a
+        /// server only this machine can reach (no firewall prompt), or one adapter's address to serve
+        /// only that network (LAN, VPN). Null (default) = all interfaces. Also settable per start:
+        /// <see cref="Peers.NetServer.StartAsync(System.Net.IPAddress, int, System.Threading.CancellationToken)"/>.
+        /// </summary>
+        public System.Net.IPAddress? BindAddress { get; set; }
+
         internal Transports.TransportSettings BuildTransportSettings() {
             return new Transports.TransportSettings {
                 PingIntervalMs = PingIntervalMs,
                 PingTimeoutMs = PingTimeoutMs,
                 WriteTimeoutMs = WriteTimeoutMs,
                 MaxMessageSize = WireMessageLimit,
-                Logger = Logger
+                Logger = Logger,
+                BindAddress = BindAddress
             };
         }
 

@@ -24,6 +24,13 @@ namespace NetSync.Transports {
 
         public INetLogger Logger { get; set; } = NullNetLogger.Instance;
 
+        /// <summary>
+        /// Servers: the local address to listen on — loopback for a machine-local server (no
+        /// firewall prompt, unreachable from outside), or one adapter's address (LAN, VPN).
+        /// Null (default) = all interfaces, IPv4 and IPv6.
+        /// </summary>
+        public System.Net.IPAddress? BindAddress { get; set; }
+
         internal static TransportSettings From(int pingIntervalMs, int pingTimeoutMs, INetLogger? logger) {
             return new TransportSettings {
                 PingIntervalMs = pingIntervalMs,

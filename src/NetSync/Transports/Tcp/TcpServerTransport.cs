@@ -87,7 +87,7 @@ namespace NetSync.Transports.Tcp {
             }
 
             try {
-                _listener = DualStack.StartTcpListener(port);
+                _listener = DualStack.StartTcpListener(port, _settings.BindAddress);
             }
             catch {
                 Volatile.Write(ref _running, 0);

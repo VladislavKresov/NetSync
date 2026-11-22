@@ -99,6 +99,9 @@ namespace NetSync.Relay {
         public int Port { get; private set; }
         public int RoomCount => _rooms.Count;
 
+        /// <summary>The local address to listen on (e.g. one adapter's); null (default) = all interfaces.</summary>
+        public IPAddress? BindAddress { get; set; }
+
         /// <summary>UDP payload bytes forwarded (direct paths don't count — the point of punching).</summary>
         public long RelayedUdpBytes => Interlocked.Read(ref _relayedUdpBytes);
 
@@ -115,13 +118,13 @@ namespace NetSync.Relay {
                 throw new InvalidOperationException("Relay already running");
             }
             for (int attempt = 0; ; attempt++) {
-                _listener = DualStack.StartTcpListener(port);
+                _listener = DualStack.StartTcpListener(port, BindAddress);
                 Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
                 try {
-                    _udp = UdpSockets.BindServer(Port);
+                    _udp = UdpSockets.BindServer(Port, BindAddress);
                     break;
                 }
-                catch (SocketException) when (port == 0 && attempt < 20) {
+                catch (SocketException ex) when (port == 0 && attempt < 20 && Peers.NetServer.IsPortConflict(ex)) {
                     _listener.Stop(); // the OS picked a TCP port that is busy for UDP: pick again
                 }
                 catch {
