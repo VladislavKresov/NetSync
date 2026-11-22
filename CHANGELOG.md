@@ -11,7 +11,7 @@ Wire protocol v4 (compatible with 2.0.0-rc.5 and rc.6).
 
 ### Fixed
 - The UDP side of a server on a system without IPv6 dropped every datagram (the net8.0 build read IPv4 addresses with an IPv6 template), so clients fell back to TCP.
-- `NetServer.StartAsync(0)` retried 20 times on any socket error; it now retries only when the chosen port is taken.
+- `NetServer.StartAsync(0)` and `NetRelayServer.StartAsync(0)` could fail on Windows machines that reserve large UDP port ranges (Hyper-V, WSL, Docker): the port picked for TCP was often unusable for UDP. The protocol that picks the port now alternates between attempts, and only a taken port is retried — any other error fails at once.
 - `NetWriter.WriteString` threw `ArgumentException` ("output byte buffer is too small") for any string that made the writer's buffer grow: the text was encoded into the buffer as it was before growing.
 
 ## 2.0.0-rc.6 — 2026-11-21

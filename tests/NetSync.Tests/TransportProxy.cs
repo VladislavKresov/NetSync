@@ -41,7 +41,7 @@ namespace NetSync.Tests {
                 try {
                     udp.Bind(new IPEndPoint(IPAddress.Loopback, port));
                 }
-                catch (SocketException) when (attempt < 50) {
+                catch (SocketException) when (attempt < 100) {
                     udp.Dispose();
                     tcp.Stop();
                     continue;

@@ -117,18 +117,31 @@ namespace NetSync.Relay {
             if (_cts != null) {
                 throw new InvalidOperationException("Relay already running");
             }
+            // One port for TCP and UDP; with port 0 the picking protocol alternates (see NetServer).
             for (int attempt = 0; ; attempt++) {
-                _listener = DualStack.StartTcpListener(port, BindAddress);
-                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                TcpListener? tcpListener = null;
+                Socket? udpSocket = null;
                 try {
-                    _udp = UdpSockets.BindServer(Port, BindAddress);
+                    if (port == 0 && attempt % 2 == 1) {
+                        udpSocket = UdpSockets.BindServer(0, BindAddress);
+                        tcpListener = DualStack.StartTcpListener(((IPEndPoint)udpSocket.LocalEndPoint!).Port, BindAddress);
+                    }
+                    else {
+                        tcpListener = DualStack.StartTcpListener(port, BindAddress);
+                        udpSocket = UdpSockets.BindServer(((IPEndPoint)tcpListener.LocalEndpoint).Port, BindAddress);
+                    }
+                    _listener = tcpListener;
+                    _udp = udpSocket;
+                    Port = ((IPEndPoint)tcpListener.LocalEndpoint).Port;
                     break;
                 }
-                catch (SocketException ex) when (port == 0 && attempt < 20 && Peers.NetServer.IsPortConflict(ex)) {
-                    _listener.Stop(); // the OS picked a TCP port that is busy for UDP: pick again
+                catch (SocketException ex) when (port == 0 && attempt < 100 && Peers.NetServer.IsPortConflict(ex)) {
+                    tcpListener?.Stop(); // the port picked for one protocol is taken for the other: pick again
+                    udpSocket?.Dispose();
                 }
                 catch {
-                    _listener.Stop();
+                    tcpListener?.Stop();
+                    udpSocket?.Dispose();
                     throw;
                 }
             }

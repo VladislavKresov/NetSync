@@ -153,8 +153,8 @@ namespace NetSync.Peers {
         }
 
         /// <summary>
-        /// The port the OS picked for TCP is taken for UDP: worth another pick. Anything else (an
-        /// address that isn't this machine's, no permission) fails at once instead of 20 times.
+        /// The port picked for one protocol is taken (or reserved) for the other: worth another pick.
+        /// Anything else (an address that isn't this machine's) fails at once.
         /// </summary>
         internal static bool IsPortConflict(SocketException ex) =>
             ex.SocketErrorCode == SocketError.AddressAlreadyInUse || ex.SocketErrorCode == SocketError.AccessDenied;
@@ -165,7 +165,11 @@ namespace NetSync.Peers {
             }
 
             try {
-                const int maxAttempts = 20;
+                // One port number for every transport. With port 0 one of them lets the OS pick and
+                // the others follow — but a port free for TCP can be taken or reserved for UDP (Windows
+                // reserves whole UDP ranges for Hyper-V and similar). So the picking side alternates:
+                // the OS only hands out ports usable for the protocol that asks.
+                const int maxAttempts = 100;
                 for (int attempt = 0; ; attempt++) {
                     _transports.Clear();
                     foreach (var type in _transportTypes) {
@@ -173,14 +177,16 @@ namespace NetSync.Peers {
                     }
                     try {
                         int boundPort = port;
-                        foreach (var (_, transport) in _transports) { // TCP first (sorted)
+                        bool reversed = port == 0 && attempt % 2 == 1;
+                        for (int i = 0; i < _transports.Count; i++) {
+                            var transport = _transports[reversed ? _transports.Count - 1 - i : i].Transport;
                             boundPort = await transport.StartAsync(boundPort, ct).ConfigureAwait(false);
                         }
                         Port = boundPort;
                         break;
                     }
                     catch (SocketException ex) when (port == 0 && _transportTypes.Count > 1 && attempt < maxAttempts && IsPortConflict(ex)) {
-                        // The OS gave TCP a port that is busy for UDP; retry with a new pick.
+                        // The port picked for one transport is taken for another: pick again.
                         await StopTransportsAsync().ConfigureAwait(false);
                     }
                     catch {

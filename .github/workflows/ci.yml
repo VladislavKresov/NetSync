@@ -40,6 +40,16 @@ jobs:
         if: failure()
         shell: bash
         run: python3 tools/ci-annotate.py test-output.txt
+      - name: Show reserved port ranges (Windows reserves ranges for Hyper-V and similar)
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          foreach ($protocol in 'udp', 'tcp') {
+            $ranges = (netsh int ipv4 show excludedportrange protocol=$protocol | Select-String '^\s*\d+\s+\d+') -join '; '
+            Write-Output "::warning title=Excluded $protocol ports::$ranges"
+          }
+          $dynamic = (netsh int ipv4 show dynamicport udp | Out-String) -replace '\s+', ' '
+          Write-Output "::warning title=Dynamic udp ports::$dynamic"
       - name: Name a hanging test (runs the tests one at a time)
         if: failure() && runner.os == 'macOS'
         shell: bash
