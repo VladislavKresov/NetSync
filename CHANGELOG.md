@@ -2,7 +2,7 @@
 
 Versions follow [Semantic Versioning](https://semver.org). The wire protocol has its own version, noted for each release: peers must speak the same one.
 
-## 2.0.0-rc.8 — unreleased
+## 2.0.0-rc.8 — 2026-11-22
 
 Wire protocol v4 (compatible with 2.0.0-rc.5 – rc.7; only the sender's behaviour changed).
 
